@@ -97,6 +97,7 @@ const STATS = {
   cpu_count: 4,
   cpu_percent: 23.4,
   hostname: 'gw-1',
+  load_avg: [1.5, 1, 0.5],
   memory: { percent: 92, total: 8 * 1024 ** 3, used: 7 * 1024 ** 3 },
   ok: true
 }
@@ -122,7 +123,7 @@ test('a reply from /stats paints CPU and RAM, coloured by the worst figure', asy
 
   const chip = plugin.chip()
   assert.deepEqual(paths, ['/stats'])
-  assert.equal(text(chip.props.children), 'CPU 23% · RAM 92%')
+  assert.equal(text(chip.props.children), 'CPU 23% · Load 1.50 · RAM 92%')
   assert.equal(chip.props.children.props.style.color, '#ef4444')
   assert.match(text(chip.props.label), /gw-1/)
   plugin.dispose()

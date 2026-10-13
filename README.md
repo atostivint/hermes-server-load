@@ -1,10 +1,10 @@
 # hermes-server-load
 
-Hermes **Desktop** plugin that shows the CPU and RAM load of the server the Desktop is
-connected to as a status-bar chip: `CPU 23% · RAM 61%`. On a remote gateway (SSH, URL +
-token) it measures the remote box, not your PC. The tooltip gives the hostname, core count,
-load average (Linux/macOS) and RAM used / total. The chip turns amber at 75 % and red at
-90 % (the worse of the two figures).
+Hermes **Desktop** plugin that shows the CPU, load average and RAM of the server the Desktop is
+connected to as a status-bar chip: `CPU 23% · Load 1.20 · RAM 61%`. On a remote gateway (SSH, URL +
+token) it measures the remote box, not your PC. Load is the 1-minute average (omitted when the
+server reports none); the tooltip adds hostname, cores, 5/15-min load and RAM used / total. The chip turns amber at 75 % and red at
+90 % of its worst figure (load counts per core: 4.0 on 4 cores = 100 %).
 
 Two halves, one package (same layout as other unified Hermes plugins):
 

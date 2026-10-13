@@ -1,7 +1,33 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { formatBytes, formatPercent, levelOf, MAX_BACKOFF_MS, nextPollDelay, POLL_MS, tooltipLines } from '../src/load.js'
+import {
+  chipLabel,
+  formatBytes,
+  formatPercent,
+  levelOf,
+  loadPercent,
+  MAX_BACKOFF_MS,
+  nextPollDelay,
+  POLL_MS,
+  tooltipLines
+} from '../src/load.js'
+
+test('the chip shows CPU, 1-minute load and RAM', () => {
+  assert.equal(chipLabel({ cpu_percent: 23.4, load_avg: [1.2, 0.8, 0.5], memory: { percent: 61 } }), 'CPU 23% · Load 1.20 · RAM 61%')
+})
+
+test('a server that reports no load average keeps a CPU + RAM chip', () => {
+  assert.equal(chipLabel({ cpu_percent: 5, memory: { percent: 10 } }), 'CPU 5% · RAM 10%')
+})
+
+test('load is weighed per core, so a saturated box colours the chip', () => {
+  const stats = { cpu_count: 4, load_avg: [3.8, 2, 1] }
+
+  assert.equal(loadPercent(stats), 95)
+  assert.equal(levelOf(10, loadPercent(stats), 20), 'critical')
+  assert.equal(loadPercent({ load_avg: [1, 1, 1] }), undefined)
+})
 
 test('bytes read in binary units, one decimal below 10', () => {
   assert.equal(formatBytes(512), '512 B')

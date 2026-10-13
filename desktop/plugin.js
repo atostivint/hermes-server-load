@@ -1,6 +1,7 @@
 /**
- * server-load — a status-bar chip with the CPU and RAM load of the server the
- * Desktop is connected to ("CPU 23% · RAM 61%"), detail in the tooltip.
+ * server-load — a status-bar chip with the CPU, load average and RAM of the
+ * server the Desktop is connected to ("CPU 23% · Load 1.20 · RAM 61%"),
+ * detail in the tooltip.
  *
  * The figures come from the backend half (`dashboard/plugin_api.py`,
  * GET /stats), which runs inside the connected `hermes serve`: on a remote
@@ -126,7 +127,6 @@ function LoadChip({ store }) {
   }
 
   const { stats } = state
-  const memoryPercent = stats.memory?.percent
 
   return jsx(Tip, {
     label: jsx('div', {
@@ -135,11 +135,8 @@ function LoadChip({ store }) {
     }),
     children: jsxs('span', {
       className: CHIP_CLASS,
-      style: { color: LEVEL_COLOR[levelOf(stats.cpu_percent, memoryPercent)] },
-      children: [
-        jsx(Codicon, { name: 'pulse', size: '0.7rem' }),
-        jsx('span', { children: `CPU ${formatPercent(stats.cpu_percent)} · RAM ${formatPercent(memoryPercent)}` })
-      ]
+      style: { color: LEVEL_COLOR[levelOf(stats.cpu_percent, loadPercent(stats), stats.memory?.percent)] },
+      children: [jsx(Codicon, { name: 'pulse', size: '0.7rem' }), jsx('span', { children: chipLabel(stats) })]
     })
   })
 }
@@ -188,6 +185,25 @@ function formatBytes(bytes) {
 
 function formatPercent(percent) {
   return Number.isFinite(percent) ? `${Math.round(percent)}%` : '—'
+}
+
+// 1-minute load per core, as a percent: a load of 4 on 4 cores is a saturated box.
+function loadPercent(stats) {
+  const load1 = stats.load_avg?.[0]
+
+  return Number.isFinite(load1) && stats.cpu_count > 0 ? (load1 / stats.cpu_count) * 100 : undefined
+}
+
+function chipLabel(stats) {
+  const parts = [`CPU ${formatPercent(stats.cpu_percent)}`]
+
+  if (Number.isFinite(stats.load_avg?.[0])) {
+    parts.push(`Load ${stats.load_avg[0].toFixed(2)}`)
+  }
+
+  parts.push(`RAM ${formatPercent(stats.memory?.percent)}`)
+
+  return parts.join(' · ')
 }
 
 // The chip takes the colour of its worst figure.

@@ -26,6 +26,25 @@ export function formatPercent(percent) {
   return Number.isFinite(percent) ? `${Math.round(percent)}%` : '—'
 }
 
+// 1-minute load per core, as a percent: a load of 4 on 4 cores is a saturated box.
+export function loadPercent(stats) {
+  const load1 = stats.load_avg?.[0]
+
+  return Number.isFinite(load1) && stats.cpu_count > 0 ? (load1 / stats.cpu_count) * 100 : undefined
+}
+
+export function chipLabel(stats) {
+  const parts = [`CPU ${formatPercent(stats.cpu_percent)}`]
+
+  if (Number.isFinite(stats.load_avg?.[0])) {
+    parts.push(`Load ${stats.load_avg[0].toFixed(2)}`)
+  }
+
+  parts.push(`RAM ${formatPercent(stats.memory?.percent)}`)
+
+  return parts.join(' · ')
+}
+
 // The chip takes the colour of its worst figure.
 export function levelOf(...percents) {
   const worst = Math.max(...percents.filter(Number.isFinite), 0)
