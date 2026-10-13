@@ -6,12 +6,24 @@ token) it measures the remote box, not your PC. Load is the 1-minute average (om
 server reports none); the tooltip adds hostname, cores, 5/15-min load and RAM used / total. The chip turns amber at 75 % and red at
 90 % of its worst figure (load counts per core: 4.0 on 4 cores = 100 %).
 
+`👥 N` counts the sessions clients hold right now on the connected profile; the tooltip
+breaks it down by client (`desktop 1 · bighelp 1 · mobile 1`). The names are the `source`
+each client sends when it opens a session:
+
+| Client | Shows as |
+|---|---|
+| Hermes Desktop | `desktop` |
+| bighelp (iPhone) | `bighelp` |
+| Conduit, "Desktop" connection (WebSocket) | `mobile` |
+| Telegram, Discord, … | `gateway:<platform>` |
+| Conduit in API mode (`/v1/runs`), any OpenAI-compatible client | not shown (the API server takes no session lease) |
+
 Two halves, one package (same layout as other unified Hermes plugins):
 
 | Half | Where it runs | What it does |
 |---|---|---|
 | `desktop/plugin.js` | Hermes Desktop (renderer) | Chip in `statusBar.right`; polls `/stats` every 3 s, skips while the window is hidden, re-polls at once on a connection/profile switch. |
-| `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/server-load/stats` via `psutil` (a Hermes core dependency). Returns only load figures and the hostname. |
+| `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/server-load/stats` via `psutil` (a Hermes core dependency) and `active_session_registry_snapshot()`. Returns only load figures, the hostname and per-client session counts. |
 
 Without the backend half on the server, the chip shows `CPU —` (tooltip explains) and the
 poll backs off up to 60 s.
@@ -40,10 +52,14 @@ hermes plugins enable server-load                 # user plugins must be in plug
 node --test test/load.test.mjs test/plugin.test.mjs                          # Desktop half
 python -m unittest discover -s test -p "test_*.py"                           # backend unit
 HERMES_AGENT_SRC=<hermes-agent checkout> <hermes venv python> -m unittest discover -s test -p "test_*.py"
-                                                                             # real psutil + FastAPI route
+                                                                             # real psutil, registry + FastAPI route, temp HERMES_HOME
 ```
 
 ## Known limits
+
+- The client count is sessions, not devices (two chats open in bighelp count 2), and a
+  client appears from its first message in a conversation, not from connecting.
+- Counts cover the profile the Desktop is connected to (the registry is per profile).
 
 - CPU % is measured between two polls (`psutil.cpu_percent(interval=None)`); several windows
   polling the same server share that window, so each sees a shorter sample.

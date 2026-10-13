@@ -17,6 +17,25 @@ test('the chip shows CPU, 1-minute load and RAM', () => {
   assert.equal(chipLabel({ cpu_percent: 23.4, load_avg: [1.2, 0.8, 0.5], memory: { percent: 61 } }), 'CPU 23% · Load 1.20 · RAM 61%')
 })
 
+test('the chip counts clients and the tooltip names each one', () => {
+  const stats = {
+    clients: { by_surface: { bighelp: 1, desktop: 2, mobile: 1 }, total: 4 },
+    cpu_percent: 5,
+    memory: { percent: 10 }
+  }
+
+  assert.equal(chipLabel(stats), 'CPU 5% · RAM 10% · 👥 4')
+  assert.equal(tooltipLines(stats).at(-1), 'Clients: bighelp 1 · desktop 2 · mobile 1')
+})
+
+test('no client in a conversation reads as zero, an older backend shows no count at all', () => {
+  const idle = { clients: { by_surface: {}, total: 0 }, cpu_percent: 5, memory: { percent: 10 } }
+
+  assert.equal(chipLabel(idle), 'CPU 5% · RAM 10% · 👥 0')
+  assert.equal(tooltipLines(idle).at(-1), 'Clients: none in a conversation')
+  assert.equal(chipLabel({ cpu_percent: 5, memory: { percent: 10 } }), 'CPU 5% · RAM 10%')
+})
+
 test('a server that reports no load average keeps a CPU + RAM chip', () => {
   assert.equal(chipLabel({ cpu_percent: 5, memory: { percent: 10 } }), 'CPU 5% · RAM 10%')
 })

@@ -42,6 +42,11 @@ export function chipLabel(stats) {
 
   parts.push(`RAM ${formatPercent(stats.memory?.percent)}`)
 
+  // An older backend half sends no `clients`: keep the chip as it was.
+  if (Number.isInteger(stats.clients?.total)) {
+    parts.push(`👥 ${stats.clients.total}`)
+  }
+
   return parts.join(' · ')
 }
 
@@ -75,6 +80,16 @@ export function tooltipLines(stats) {
 
   if (memory) {
     lines.push(`RAM ${formatBytes(memory.used)} / ${formatBytes(memory.total)} (${formatPercent(memory.percent)})`)
+  }
+
+  const bySurface = Object.entries(stats.clients?.by_surface ?? {})
+
+  if (Number.isInteger(stats.clients?.total)) {
+    lines.push(
+      bySurface.length
+        ? `Clients: ${bySurface.map(([surface, count]) => `${surface} ${count}`).join(' · ')}`
+        : 'Clients: none in a conversation'
+    )
   }
 
   return lines
