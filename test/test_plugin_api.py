@@ -9,6 +9,7 @@ End-to-end with the real psutil and FastAPI from the Hermes environment:
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -55,19 +56,55 @@ class CollectStats(unittest.TestCase):
         self.assertEqual(load_plugin_api().collect_stats(None), {"ok": False})
 
 
+class CountClients(unittest.TestCase):
+    def test_only_per_surface_counts_leave_the_process(self):
+        counts = load_plugin_api().count_clients([
+            {"session_id": "s1", "surface": "desktop", "pid": 1, "lease_id": "a"},
+            {"session_id": "s2", "surface": "bighelp", "metadata": {"user_id": "u"}},
+            {"session_id": "s3", "surface": "desktop"},
+            {"session_id": "s4"},
+        ])
+
+        self.assertEqual(counts, {"total": 4, "by_surface": {"bighelp": 1, "desktop": 2, "unknown": 1}})
+
+
 @unittest.skipUnless(SRC, "set HERMES_AGENT_SRC to run with the Hermes environment")
 class RealRoute(unittest.TestCase):
-    def test_the_mounted_route_reports_this_machine(self):
+    # Temp HERMES_HOME: the route reads (and prunes) the session registry of the current home.
+    def setUp(self):
+        if SRC not in sys.path:
+            sys.path.insert(0, SRC)
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        previous = os.environ.get("HERMES_HOME")
+        os.environ["HERMES_HOME"] = home.name
+        self.addCleanup(lambda: os.environ.__setitem__("HERMES_HOME", previous) if previous is not None
+                        else os.environ.pop("HERMES_HOME", None))
+
+    def get_stats(self):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         app = FastAPI()
         app.include_router(load_plugin_api().router, prefix="/api/plugins/server-load")
-        body = TestClient(app).get("/api/plugins/server-load/stats").json()
+        return TestClient(app).get("/api/plugins/server-load/stats").json()
+
+    def test_the_mounted_route_reports_this_machine(self):
+        body = self.get_stats()
 
         self.assertTrue(body["ok"])
         self.assertGreater(body["memory"]["total"], 0)
         self.assertTrue(0 <= body["cpu_percent"] <= 100)
+        self.assertEqual(body["clients"], {"total": 0, "by_surface": {}})
+
+    def test_a_session_held_by_a_client_is_counted_under_its_source(self):
+        from hermes_cli.active_sessions import release_active_session, try_acquire_active_session
+
+        lease, refusal = try_acquire_active_session(session_id="sess-1", surface="mobile", config={})
+        self.assertIsNone(refusal)
+        self.addCleanup(release_active_session, lease)
+
+        self.assertEqual(self.get_stats()["clients"], {"total": 1, "by_surface": {"mobile": 1}})
 
 
 if __name__ == "__main__":
