@@ -1,0 +1,12 @@
+{
+  "name": "hermes-server-load",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hermes Desktop plugin: CPU / RAM of the connected server in the status bar.",
+  "scripts": {
+    "build": "node scripts/build.mjs && node --check desktop/plugin.js",
+    "test": "node --test test/load.test.mjs test/plugin.test.mjs",
+    "install:plugin": "node scripts/build.mjs && node scripts/install.mjs"
+  }
+}

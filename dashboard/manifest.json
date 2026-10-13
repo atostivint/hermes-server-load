@@ -1,0 +1,1 @@
+{"api": "plugin_api.py", "description": "CPU and memory of the server the Desktop is connected to (read-only).", "icon": "Activity", "label": "Server load", "name": "server-load", "tab": {"hidden": true, "path": "/server-load"}, "version": "0.1.0"}
