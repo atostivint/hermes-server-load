@@ -9,7 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const load = readFileSync(join(root, 'src/load.js'), 'utf8')
 const entry = readFileSync(join(root, 'src/plugin.src.js'), 'utf8')
 
-const importLine = /^import \{[^}]*\} from '\.\/load\.js'\n/m
+const importLine = /^import \{[^}]*\} from '\.\/load\.js'\r?\n/m
 
 if (!importLine.test(entry)) {
   throw new Error("plugin.src.js must import from './load.js' on one line")

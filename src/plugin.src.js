@@ -8,14 +8,17 @@
  * gateway it measures the remote box. Without that half on the server the chip
  * shows "CPU —" and the poll backs off.
  *
+ * Settings ▸ Plugins ▸ Server load switches each figure on or off in the chip
+ * (persisted with ctx.storage); the tooltip always has the full detail.
+ *
  * Edit this file, then `node scripts/build.mjs`: load.js is inlined to give
  * the single plugin.js the runtime loader accepts.
  */
 
-import { Codicon, host, STATUSBAR_AREAS, Tip } from '@hermes/plugin-sdk'
+import { atom, Codicon, host, STATUSBAR_AREAS, Tip, ToggleRow, useValue } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { useSyncExternalStore } from 'react'
-import { chipLabel, levelOf, loadPercent, nextPollDelay, POLL_MS, tooltipLines } from './load.js'
+import { CHIP_FIGURES, chipLabel, levelOf, nextPollDelay, POLL_MS, shownFigures, shownPercents, tooltipLines } from './load.js'
 
 const LEVEL_COLOR = { critical: '#ef4444', normal: undefined, warning: '#f59e0b' }
 
@@ -110,8 +113,9 @@ function createLoadStore(ctx) {
 const CHIP_CLASS =
   'inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] tabular-nums text-(--ui-text-tertiary)'
 
-function LoadChip({ store }) {
+function LoadChip({ prefs, store }) {
   const state = useSyncExternalStore(store.subscribe, store.get)
+  const shown = useValue(prefs)
 
   if (state.status === 'loading') {
     return null
@@ -128,6 +132,8 @@ function LoadChip({ store }) {
   }
 
   const { stats } = state
+  // Every figure switched off still leaves the icon, so the tooltip stays reachable.
+  const label = chipLabel(stats, shown)
 
   return jsx(Tip, {
     label: jsx('div', {
@@ -136,9 +142,19 @@ function LoadChip({ store }) {
     }),
     children: jsxs('span', {
       className: CHIP_CLASS,
-      style: { color: LEVEL_COLOR[levelOf(stats.cpu_percent, loadPercent(stats), stats.memory?.percent)] },
-      children: [jsx(Codicon, { name: 'pulse', size: '0.7rem' }), jsx('span', { children: chipLabel(stats) })]
+      style: { color: LEVEL_COLOR[levelOf(...shownPercents(stats, shown))] },
+      children: [jsx(Codicon, { name: 'pulse', size: '0.7rem' }), label ? jsx('span', { children: label }) : null]
     })
+  })
+}
+
+function ChipSettings({ prefs, update }) {
+  const shown = useValue(prefs)
+
+  return jsx('div', {
+    children: CHIP_FIGURES.map(({ description, id, label }) =>
+      jsx(ToggleRow, { checked: shown[id], description, label, onChange: on => update({ [id]: on }) }, id)
+    )
   })
 }
 
@@ -149,12 +165,26 @@ export default {
   defaultEnabled: false,
   register(ctx) {
     const store = createLoadStore(ctx)
+    const prefs = atom(shownFigures(ctx.storage?.get('chip', {})))
+
+    const update = patch => {
+      prefs.set({ ...prefs.get(), ...patch })
+      ctx.storage?.set('chip', prefs.get())
+    }
 
     ctx.register({
       id: 'chip',
       area: STATUSBAR_AREAS.right,
       order: 90,
-      render: () => jsx(LoadChip, { store })
+      render: () => jsx(LoadChip, { prefs, store })
+    })
+
+    // Feature-detected: older hosts have no Settings ▸ Plugins page, the chip shows everything.
+    ctx.registerSettingsPage?.({
+      id: 'settings',
+      title: 'Server load',
+      icon: 'pulse',
+      render: () => jsx(ChipSettings, { prefs, update })
     })
   }
 }

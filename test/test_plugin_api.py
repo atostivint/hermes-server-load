@@ -68,6 +68,65 @@ class CountClients(unittest.TestCase):
         self.assertEqual(counts, {"total": 4, "by_surface": {"bighelp": 1, "desktop": 2, "unknown": 1}})
 
 
+class HermesCommand(unittest.TestCase):
+    def test_console_scripts_modules_and_shims_are_recognised(self):
+        command = load_plugin_api().hermes_command
+        cases = {
+            ("/home/u/.local/bin/hermes", "serve", "--port", "9119"): "serve",
+            ("hermes", "-p", "work", "gateway", "run"): "gateway",
+            ("hermes",): "chat",
+            (r"C:\Users\u\AppData\Local\hermes\venv\Scripts\hermes.exe", "--profile", "x"): "chat",
+            ("/usr/bin/python3.12", "-u", "-m", "hermes_cli.main", "dashboard"): "dashboard",
+            ("python3", "-X", "utf8", "/opt/hermes/bin/hermes", "chat"): "chat",
+            (r"C:\venv\Scripts\python.exe", r"C:\venv\Scripts\hermes.exe", "serve"): "serve",
+            ("hermes-acp",): "acp",
+            ("python", "-m", "tui_gateway.entry"): "tui",
+        }
+        for argv, expected in cases.items():
+            self.assertEqual(command(list(argv)), expected, argv)
+
+    def test_the_desktop_and_unrelated_processes_are_not_hermes(self):
+        command = load_plugin_api().hermes_command
+        for argv in (
+            [r"C:\Users\u\AppData\Local\hermes\hermes-agent\apps\desktop\release\win-unpacked\Hermes.exe"],
+            ["/Applications/Hermes.app/Contents/MacOS/Hermes", "--type=renderer"],
+            ["python3", "onenote_mcp_server.py"],
+            ["python3", "-m", "http.server"],
+            ["vim", "hermes.py"],
+            [],
+            None,
+        ):
+            self.assertIsNone(command(argv), argv)
+
+
+class CountHermesProcesses(unittest.TestCase):
+    def test_a_hermes_started_by_another_counts_under_its_top_level_ancestor(self):
+        counts = load_plugin_api().count_hermes_processes([
+            {"pid": 1, "ppid": 0, "cmdline": ["/sbin/init"]},
+            {"pid": 10, "ppid": 1, "cmdline": ["hermes", "serve"]},
+            # Windows launcher and its python child: one executable.
+            {"pid": 20, "ppid": 1, "cmdline": ["hermes.exe", "chat"]},
+            {"pid": 21, "ppid": 20, "cmdline": ["python.exe", "hermes.exe", "chat"]},
+            # The TUI: hermes chat -> node -> tui_gateway.
+            {"pid": 30, "ppid": 1, "cmdline": ["hermes", "--tui"]},
+            {"pid": 31, "ppid": 30, "cmdline": ["node", "ui-tui/dist/entry.js"]},
+            {"pid": 32, "ppid": 31, "cmdline": ["python", "-m", "tui_gateway.entry"]},
+            {"pid": 40, "ppid": 99, "cmdline": ["hermes", "chat"]},  # parent already gone
+            {"pid": 50, "ppid": 1, "cmdline": None},  # AccessDenied
+            {"pid": 60, "ppid": 1, "cmdline": ["Hermes.exe"]},
+        ])
+
+        self.assertEqual(counts, {"total": 4, "by_command": {"chat": 3, "serve": 1}})
+
+    def test_a_ppid_cycle_does_not_hang(self):
+        counts = load_plugin_api().count_hermes_processes([
+            {"pid": 1, "ppid": 2, "cmdline": ["bash"]},
+            {"pid": 2, "ppid": 1, "cmdline": ["hermes", "serve"]},
+        ])
+
+        self.assertEqual(counts, {"total": 1, "by_command": {"serve": 1}})
+
+
 @unittest.skipUnless(SRC, "set HERMES_AGENT_SRC to run with the Hermes environment")
 class RealRoute(unittest.TestCase):
     # Temp HERMES_HOME: the route reads (and prunes) the session registry of the current home.
@@ -96,6 +155,7 @@ class RealRoute(unittest.TestCase):
         self.assertGreater(body["memory"]["total"], 0)
         self.assertTrue(0 <= body["cpu_percent"] <= 100)
         self.assertEqual(body["clients"], {"total": 0, "by_surface": {}})
+        self.assertEqual(body["processes"]["total"], sum(body["processes"]["by_command"].values()))
 
     def test_a_session_held_by_a_client_is_counted_under_its_source(self):
         from hermes_cli.active_sessions import release_active_session, try_acquire_active_session

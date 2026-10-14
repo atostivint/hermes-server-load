@@ -28,13 +28,16 @@ const profile = atom('default')
 globalThis.document = { hidden: false }
 
 globalThis.__stubs = {
+  atom,
   Codicon: 'Codicon',
   host: { state: { connectionId, profile } },
   jsx: (type, props) => ({ props, type }),
   jsxs: (type, props) => ({ props, type }),
   STATUSBAR_AREAS: { right: 'statusBar.right' },
   Tip: 'Tip',
-  useSyncExternalStore: (subscribe, snapshot) => snapshot()
+  ToggleRow: 'ToggleRow',
+  useSyncExternalStore: (subscribe, snapshot) => snapshot(),
+  useValue: store => store.get()
 }
 
 const source = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
@@ -42,20 +45,27 @@ const source = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'u
   .replace('export default', 'globalThis.__plugin =')
 
 new Function(
-  'const { Codicon, host, jsx, jsxs, STATUSBAR_AREAS, Tip, useSyncExternalStore } = globalThis.__stubs;' + source
+  'const { atom, Codicon, host, jsx, jsxs, STATUSBAR_AREAS, Tip, ToggleRow, useSyncExternalStore, useValue } = globalThis.__stubs;' +
+    source
 )()
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0))
 
-function load(rest) {
+function load(rest, saved = {}) {
   const registered = []
   const disposers = []
   const timers = []
+  const pages = []
 
   globalThis.__plugin.register({
     onDispose: fn => disposers.push(fn),
     register: contribution => registered.push(contribution),
+    registerSettingsPage: page => pages.push(page),
     rest,
+    storage: {
+      get: (key, fallback) => (key in saved ? saved[key] : fallback),
+      set: (key, value) => (saved[key] = value)
+    },
     setTimeout: (fn, ms) => {
       const timer = { fn, live: true, ms }
       timers.push(timer)
@@ -80,7 +90,14 @@ function load(rest) {
     return element.type(element.props)
   }
 
-  return { chip, dispose: () => disposers.forEach(fn => fn()), fire, registered, timers }
+  // Settings page: <ChipSettings> -> one <ToggleRow> per figure.
+  const toggles = () => {
+    const element = pages[0].render()
+
+    return element.type(element.props).props.children
+  }
+
+  return { chip, dispose: () => disposers.forEach(fn => fn()), fire, pages, registered, saved, timers, toggles }
 }
 
 function text(node) {
@@ -126,6 +143,43 @@ test('a reply from /stats paints CPU and RAM, coloured by the worst figure', asy
   assert.equal(text(chip.props.children), 'CPU 23% · Load 1.50 · RAM 92%')
   assert.equal(chip.props.children.props.style.color, '#ef4444')
   assert.match(text(chip.props.label), /gw-1/)
+  plugin.dispose()
+})
+
+test('each figure has a switch in Settings, saved, and a hidden one stops colouring the chip', async () => {
+  const plugin = load(async () => STATS)
+
+  await plugin.fire()
+
+  const rows = plugin.toggles()
+  assert.equal(plugin.pages[0].title, 'Server load')
+  assert.deepEqual(
+    rows.map(row => row.props.label),
+    ['CPU', 'Load average', 'RAM', 'Clients', 'Hermes processes']
+  )
+  assert.ok(rows.every(row => row.props.checked))
+
+  rows.find(row => row.props.label === 'RAM').props.onChange(false)
+
+  const chip = plugin.chip()
+  assert.equal(text(chip.props.children), 'CPU 23% · Load 1.50')
+  assert.equal(chip.props.children.props.style.color, undefined, 'RAM at 92% no longer turns it red')
+  assert.equal(plugin.toggles().find(row => row.props.label === 'RAM').props.checked, false)
+  assert.deepEqual(plugin.saved.chip, { clients: true, cpu: true, load: true, processes: true, ram: false })
+  plugin.dispose()
+})
+
+test('saved settings come back on load, and every figure off leaves the icon', async () => {
+  const plugin = load(async () => STATS, {
+    chip: { clients: false, cpu: false, load: false, processes: false, ram: false }
+  })
+
+  await plugin.fire()
+
+  const chip = plugin.chip()
+  assert.equal(text(chip.props.children), '')
+  assert.equal(chip.props.children.props.children[0].type, 'Codicon')
+  assert.match(text(chip.props.label), /gw-1/, 'the tooltip keeps the detail')
   plugin.dispose()
 })
 
