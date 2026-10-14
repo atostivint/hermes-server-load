@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  ALL_SHOWN,
   chipLabel,
   formatBytes,
   formatPercent,
@@ -10,6 +11,8 @@ import {
   MAX_BACKOFF_MS,
   nextPollDelay,
   POLL_MS,
+  shownFigures,
+  shownPercents,
   tooltipLines
 } from '../src/load.js'
 
@@ -34,6 +37,40 @@ test('no client in a conversation reads as zero, an older backend shows no count
   assert.equal(chipLabel(idle), 'CPU 5% · RAM 10% · 👥 0')
   assert.equal(tooltipLines(idle).at(-1), 'Clients: none in a conversation')
   assert.equal(chipLabel({ cpu_percent: 5, memory: { percent: 10 } }), 'CPU 5% · RAM 10%')
+})
+
+test('the chip counts running Hermes executables and the tooltip names each command', () => {
+  const stats = {
+    clients: { by_surface: {}, total: 0 },
+    cpu_percent: 5,
+    memory: { percent: 10 },
+    processes: { by_command: { chat: 3, serve: 1 }, total: 4 }
+  }
+
+  assert.equal(chipLabel(stats), 'CPU 5% · RAM 10% · 👥 0 · ⚙ 4')
+  assert.equal(tooltipLines(stats).at(-1), 'Hermes running: chat 3 · serve 1')
+  assert.equal(chipLabel({ clients: stats.clients, cpu_percent: 5, memory: { percent: 10 } }), 'CPU 5% · RAM 10% · 👥 0')
+})
+
+test('the chip shows only the switched-on figures, and only those colour it', () => {
+  const stats = {
+    clients: { by_surface: {}, total: 2 },
+    cpu_count: 4,
+    cpu_percent: 95,
+    load_avg: [1, 1, 1],
+    memory: { percent: 10 },
+    processes: { by_command: {}, total: 3 }
+  }
+  const shown = shownFigures({ cpu: false, processes: false })
+
+  assert.equal(chipLabel(stats, shown), 'Load 1.00 · RAM 10% · 👥 2')
+  assert.equal(levelOf(...shownPercents(stats, shown)), 'normal')
+  assert.equal(levelOf(...shownPercents(stats)), 'critical')
+})
+
+test('saved settings fill in defaults and ignore junk', () => {
+  assert.deepEqual(shownFigures(undefined), ALL_SHOWN)
+  assert.deepEqual(shownFigures({ bogus: false, ram: 'no', load: false }), { ...ALL_SHOWN, load: false })
 })
 
 test('a server that reports no load average keeps a CPU + RAM chip', () => {

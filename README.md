@@ -18,12 +18,25 @@ each client sends when it opens a session:
 | Telegram, Discord, … | `gateway:<platform>` |
 | Conduit in API mode (`/v1/runs`), any OpenAI-compatible client | not shown (the API server takes no session lease) |
 
+`⚙ N` counts the Hermes executables running on the server right now, all profiles and
+users it can see: each `hermes` command (`serve`, `chat`, `gateway`, `dashboard`…),
+`hermes-agent`, `hermes-acp`. The tooltip breaks it down by command
+(`Hermes running: chat 3 · serve 1`), so several agents launched in parallel show up as
+`chat 3`. A Hermes started by another one counts once, under its top-level ancestor: the
+Windows launcher and its python children, the TUI's `tui_gateway`, a `hermes` an agent runs
+from its terminal. The Desktop app itself (`Hermes`, capitalised) is not counted.
+
+**Settings ▸ Plugins ▸ Server load** has one switch per figure (CPU, Load average, RAM,
+Clients, Hermes processes), all on by default and saved per Desktop. A hidden figure no
+longer colours the chip; with everything off the chip is just its icon. The tooltip always
+shows the full detail.
+
 Two halves, one package (same layout as other unified Hermes plugins):
 
 | Half | Where it runs | What it does |
 |---|---|---|
 | `desktop/plugin.js` | Hermes Desktop (renderer) | Chip in `statusBar.right`; polls `/stats` every 3 s, skips while the window is hidden, re-polls at once on a connection/profile switch. |
-| `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/server-load/stats` via `psutil` (a Hermes core dependency) and `active_session_registry_snapshot()`. Returns only load figures, the hostname and per-client session counts. |
+| `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/server-load/stats` via `psutil` (a Hermes core dependency) and `active_session_registry_snapshot()`. Returns only load figures, the hostname, per-client session counts and per-command process counts. |
 
 Without the backend half on the server, the chip shows `CPU —` (tooltip explains) and the
 poll backs off up to 60 s.
@@ -60,9 +73,14 @@ HERMES_AGENT_SRC=<hermes-agent checkout> <hermes venv python> -m unittest discov
 - The client count is sessions, not devices (two chats open in bighelp count 2), and a
   client appears from its first message in a conversation, not from connecting.
 - Counts cover the profile the Desktop is connected to (the registry is per profile).
+- The process count is by command line: a Hermes run some other way (`python -c`, renamed
+  script) is not seen, and processes of other users whose command line is unreadable are
+  skipped. It includes the `hermes serve` answering the chip.
 
 - CPU % is measured between two polls (`psutil.cpu_percent(interval=None)`); several windows
   polling the same server share that window, so each sees a shorter sample.
 - Not verified in the running app yet: the chip's look in the real status bar, and the mount
   through `hermes serve` (tested against a plain FastAPI router).
-- English-only tooltip; fixed thresholds and 3 s cadence (no settings page yet).
+- English-only tooltip and settings; fixed thresholds and 3 s cadence (the settings page
+  only picks the chip's figures). Hosts older than Settings ▸ Plugins show every figure.
+- The backend still measures everything: switching a figure off only hides it.

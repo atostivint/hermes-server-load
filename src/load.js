@@ -33,21 +33,65 @@ export function loadPercent(stats) {
   return Number.isFinite(load1) && stats.cpu_count > 0 ? (load1 / stats.cpu_count) * 100 : undefined
 }
 
-export function chipLabel(stats) {
-  const parts = [`CPU ${formatPercent(stats.cpu_percent)}`]
+// What the chip can show, in chip order; each one is a switch in the settings page.
+export const CHIP_FIGURES = [
+  { description: 'CPU use since the previous poll.', id: 'cpu', label: 'CPU' },
+  { description: '1-minute load average (servers that report one).', id: 'load', label: 'Load average' },
+  { description: 'Memory in use.', id: 'ram', label: 'RAM' },
+  { description: '👥 sessions clients hold on the connected profile.', id: 'clients', label: 'Clients' },
+  { description: '⚙ Hermes executables running on the server.', id: 'processes', label: 'Hermes processes' }
+]
 
-  if (Number.isFinite(stats.load_avg?.[0])) {
+export const ALL_SHOWN = Object.fromEntries(CHIP_FIGURES.map(({ id }) => [id, true]))
+
+// Saved prefs over the defaults, so a figure added later starts shown.
+export function shownFigures(saved) {
+  const shown = { ...ALL_SHOWN }
+
+  for (const id of Object.keys(ALL_SHOWN)) {
+    if (typeof saved?.[id] === 'boolean') {
+      shown[id] = saved[id]
+    }
+  }
+
+  return shown
+}
+
+export function chipLabel(stats, shown = ALL_SHOWN) {
+  const parts = []
+
+  if (shown.cpu) {
+    parts.push(`CPU ${formatPercent(stats.cpu_percent)}`)
+  }
+
+  if (shown.load && Number.isFinite(stats.load_avg?.[0])) {
     parts.push(`Load ${stats.load_avg[0].toFixed(2)}`)
   }
 
-  parts.push(`RAM ${formatPercent(stats.memory?.percent)}`)
+  if (shown.ram) {
+    parts.push(`RAM ${formatPercent(stats.memory?.percent)}`)
+  }
 
   // An older backend half sends no `clients`: keep the chip as it was.
-  if (Number.isInteger(stats.clients?.total)) {
+  if (shown.clients && Number.isInteger(stats.clients?.total)) {
     parts.push(`👥 ${stats.clients.total}`)
   }
 
+  // Same for `processes`: Hermes executables running on the server.
+  if (shown.processes && Number.isInteger(stats.processes?.total)) {
+    parts.push(`⚙ ${stats.processes.total}`)
+  }
+
   return parts.join(' · ')
+}
+
+// The percents that colour the chip: only the figures it shows.
+export function shownPercents(stats, shown = ALL_SHOWN) {
+  return [
+    shown.cpu ? stats.cpu_percent : undefined,
+    shown.load ? loadPercent(stats) : undefined,
+    shown.ram ? stats.memory?.percent : undefined
+  ]
 }
 
 // The chip takes the colour of its worst figure.
@@ -89,6 +133,16 @@ export function tooltipLines(stats) {
       bySurface.length
         ? `Clients: ${bySurface.map(([surface, count]) => `${surface} ${count}`).join(' · ')}`
         : 'Clients: none in a conversation'
+    )
+  }
+
+  const byCommand = Object.entries(stats.processes?.by_command ?? {})
+
+  if (Number.isInteger(stats.processes?.total)) {
+    lines.push(
+      byCommand.length
+        ? `Hermes running: ${byCommand.map(([command, count]) => `${command} ${count}`).join(' · ')}`
+        : 'Hermes running: none'
     )
   }
 
