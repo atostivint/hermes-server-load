@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Hermes Desktop plugin: CPU / RAM of the connected server in the status bar.",
+  "description": "Hermes Desktop and TUI plugin: CPU / RAM of the connected server in the status bar.",
   "scripts": {
-    "build": "node scripts/build.mjs && node --check desktop/plugin.js",
-    "test": "node --test test/load.test.mjs test/plugin.test.mjs",
+    "build": "node scripts/build.mjs && node --check desktop/plugin.js && node --check tui/server-load.mjs",
+    "test": "node --test test/load.test.mjs test/plugin.test.mjs test/tui.test.mjs",
     "install:plugin": "node scripts/build.mjs && node scripts/install.mjs"
   }
 }
