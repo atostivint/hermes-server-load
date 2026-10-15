@@ -1,15 +1,21 @@
-// Copies desktop/plugin.js into <hermes home>/desktop-plugins/server-load/.
-// Usage: node scripts/install.mjs [hermesHome]
-// Home resolution mirrors hermes_constants: $HERMES_HOME, else %LOCALAPPDATA%\hermes
-// on Windows, else ~/.hermes.
+// Installs the built halves of this machine:
+// - Desktop: desktop/plugin.js -> <hermes home>/desktop-plugins/server-load/plugin.js
+// - TUI:     tui/server-load.mjs -> <hermes home>/tui-widgets/server-load.mjs
+// Usage: node scripts/install.mjs [--desktop | --tui] [hermesHome]   (both by default)
+// Home resolution mirrors each reader: the Desktop follows hermes_constants ($HERMES_HOME,
+// else %LOCALAPPDATA%\hermes on Windows, else ~/.hermes); the TUI's widget loader reads
+// $HERMES_HOME, else ~/.hermes.
 import { copyFileSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const args = process.argv.slice(2)
+const only = args.find(arg => arg === '--desktop' || arg === '--tui')
+const explicitHome = args.find(arg => !arg.startsWith('--')) || process.env.HERMES_HOME
 
-function defaultHome() {
+function desktopHome() {
   if (process.platform === 'win32') {
     return join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'hermes')
   }
@@ -17,9 +23,16 @@ function defaultHome() {
   return join(homedir(), '.hermes')
 }
 
-const home = process.argv[2] || process.env.HERMES_HOME || defaultHome()
-const dest = join(home, 'desktop-plugins', 'server-load')
+function install(from, dir, name) {
+  mkdirSync(dir, { recursive: true })
+  copyFileSync(join(root, from), join(dir, name))
+  console.log(`installed -> ${join(dir, name)}`)
+}
 
-mkdirSync(dest, { recursive: true })
-copyFileSync(join(root, 'desktop/plugin.js'), join(dest, 'plugin.js'))
-console.log(`installed -> ${join(dest, 'plugin.js')}`)
+if (only !== '--tui') {
+  install('desktop/plugin.js', join(explicitHome || desktopHome(), 'desktop-plugins', 'server-load'), 'plugin.js')
+}
+
+if (only !== '--desktop') {
+  install('tui/server-load.mjs', join(explicitHome || join(homedir(), '.hermes'), 'tui-widgets'), 'server-load.mjs')
+}

@@ -19,7 +19,9 @@ Only load figures, the hostname and per-surface / per-command counts leave this 
 session ids, process list, paths or env. Fail-open by contract: without psutil the route answers
 ``{"ok": false}``, and an unreadable registry or process table just omits that field.
 
-The dashboard loader imports this file as a top-level module, so it stays self-contained.
+The dashboard loader imports this file as a top-level module, so it stays self-contained. The TUI
+widget (``src/tui.src.mjs``) inlines it too and runs it as ``python -c``: ``stream()`` prints the
+same body as a JSON line every 3 s.
 """
 
 from __future__ import annotations
@@ -147,21 +149,59 @@ def count_hermes_processes(procs: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return {"total": sum(by_command.values()), "by_command": dict(sorted(by_command.items()))}
 
 
+def snapshot(processes: bool = True) -> dict[str, Any]:
+    """The ``/stats`` body: load figures, then the client and process counts when readable."""
+    body = collect_stats()
+    if body["ok"]:
+        try:
+            from hermes_cli.active_sessions import active_session_registry_snapshot
+
+            body["clients"] = count_clients(active_session_registry_snapshot())
+        except (ImportError, RuntimeError, OSError) as exc:  # ActiveSessionRegistryError is a RuntimeError
+            logger.debug("server-load: session registry unreadable: %s", exc)
+        if not processes:
+            return body
+        try:
+            rows = (p.info for p in psutil.process_iter(["pid", "ppid", "cmdline"]))
+            body["processes"] = count_hermes_processes(rows)
+        except Exception as exc:  # psutil.Error, OSError: the chip just loses the count
+            logger.debug("server-load: process table unreadable: %s", exc)
+    return body
+
+
+def stream(interval: float = 3.0, out: Any = None) -> None:
+    """One ``snapshot()`` JSON line per ``interval``: the TUI widget's feed (``python -c`` on this file).
+
+    The first line leaves out the process count: psutil's first full scan takes seconds on
+    Windows (~13 s for 750 processes), later ones a tenth of a second. Ends when the reader goes
+    away: a closed pipe, or a parent that died without closing it.
+    """
+    import json
+    import sys
+    import time
+
+    out = out or sys.stdout
+    parent = os.getppid()
+    time.sleep(min(interval, 0.5))  # give the first cpu_percent (primed at import) a real window
+    first = True
+    while True:
+        try:
+            out.write(json.dumps(snapshot(processes=not first)) + "\n")
+            out.flush()
+        except (BrokenPipeError, OSError, ValueError):  # ValueError: write to a closed file
+            return
+        first = False
+        time.sleep(interval)
+        if os.getppid() != parent:
+            return
+
+
 if router is not None:
 
     @router.get("/stats")
     def stats() -> dict[str, Any]:
-        body = collect_stats()
-        if body["ok"]:
-            from hermes_cli.active_sessions import active_session_registry_snapshot
+        return snapshot()
 
-            try:
-                body["clients"] = count_clients(active_session_registry_snapshot())
-            except (RuntimeError, OSError) as exc:  # ActiveSessionRegistryError is a RuntimeError
-                logger.debug("server-load: session registry unreadable: %s", exc)
-            try:
-                rows = (p.info for p in psutil.process_iter(["pid", "ppid", "cmdline"]))
-                body["processes"] = count_hermes_processes(rows)
-            except Exception as exc:  # psutil.Error, OSError: the chip just loses the count
-                logger.debug("server-load: process table unreadable: %s", exc)
-        return body
+
+if __name__ == "__main__":
+    stream(float(os.environ.get("SERVER_LOAD_INTERVAL", "3")))

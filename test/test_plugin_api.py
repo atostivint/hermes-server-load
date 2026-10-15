@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = os.environ.get("HERMES_AGENT_SRC")
@@ -125,6 +126,49 @@ class CountHermesProcesses(unittest.TestCase):
         ])
 
         self.assertEqual(counts, {"total": 1, "by_command": {"serve": 1}})
+
+
+class Stream(unittest.TestCase):
+    """The TUI feed: one snapshot JSON line per tick, the first one without the slow process scan."""
+
+    def run_stream(self, ticks):
+        import io
+        import json
+
+        api = load_plugin_api()
+        calls = []
+
+        def snapshot(processes=True):
+            calls.append(processes)
+            return {"ok": True, "n": len(calls)}
+
+        class Out(io.StringIO):
+            def flush(self):
+                if len(calls) >= ticks:
+                    self.lines = [json.loads(line) for line in self.getvalue().splitlines()]
+                    self.close()  # the reader goes away: the next write ends the stream
+
+        out = Out()
+        api.snapshot = snapshot
+        with mock.patch("time.sleep"):
+            api.stream(interval=3, out=out)
+        return calls, out.lines
+
+    def test_lines_until_the_reader_goes_away_and_the_first_skips_processes(self):
+        calls, lines = self.run_stream(ticks=3)
+
+        self.assertEqual(lines, [{"ok": True, "n": 1}, {"ok": True, "n": 2}, {"ok": True, "n": 3}])
+        self.assertEqual(calls[:3], [False, True, True])
+
+    def test_snapshot_without_processes_skips_the_scan(self):
+        api = load_plugin_api()
+        api.collect_stats = lambda: {"ok": True}
+        api.psutil = mock.Mock()
+        api.psutil.process_iter.return_value = []
+
+        self.assertNotIn("processes", api.snapshot(processes=False))
+        api.psutil.process_iter.assert_not_called()
+        self.assertEqual(api.snapshot()["processes"], {"total": 0, "by_command": {}})
 
 
 @unittest.skipUnless(SRC, "set HERMES_AGENT_SRC to run with the Hermes environment")

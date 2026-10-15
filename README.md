@@ -1,6 +1,6 @@
 # hermes-server-load
 
-Hermes **Desktop** plugin that shows the CPU, load average and RAM of the server the Desktop is
+Hermes **Desktop** and **TUI** plugin that shows the CPU, load average and RAM of the server the Desktop is
 connected to as a status-bar chip: `CPU 23% · Load 1.20 · RAM 61%`. On a remote gateway (SSH, URL +
 token) it measures the remote box, not your PC. Load is the 1-minute average (omitted when the
 server reports none); the tooltip adds hostname, cores, 5/15-min load and RAM used / total. The chip turns amber at 75 % and red at
@@ -31,25 +31,51 @@ Clients, Hermes processes), all on by default and saved per Desktop. A hidden fi
 longer colours the chip; with everything off the chip is just its icon. The tooltip always
 shows the full detail.
 
-Two halves, one package (same layout as other unified Hermes plugins):
+## TUI
+
+In `hermes --tui` the same figures sit in a card docked above the prompt, coloured like the
+chip (the TUI's skin colours). The TUI measures the machine it runs on: the card runs
+`plugin_api.py` with the TUI's own Hermes python, which prints the `/stats` body every 3 s
+for as long as the card is docked.
+
+| Command | Effect |
+|---|---|
+| `/server-load` | dock / undock the card |
+| `/server-load ram off` | hide a figure: `cpu`, `load`, `ram`, `clients`, `processes` (`on` shows it, no `on`/`off` flips it) |
+| `/server-load detail on` | add the Desktop tooltip lines (hostname, cores, 5/15-min load, RAM used / total, per-client and per-command counts) |
+| `/server-load all on` · `all off` | every figure (not `detail`) |
+| `/server-load reset` | back to the defaults: every figure on, `detail` off |
+| `/server-load help` | usage and the current options |
+
+Several go in one command (`/server-load cpu off load off detail on`); changing an option
+docks the card. Options are saved in `<HERMES_HOME>/server-load.json`, shared by every TUI
+of that home (the Desktop keeps its own, in Settings ▸ Plugins).
+
+Three halves, one package (same layout as other unified Hermes plugins):
 
 | Half | Where it runs | What it does |
 |---|---|---|
 | `desktop/plugin.js` | Hermes Desktop (renderer) | Chip in `statusBar.right`; polls `/stats` every 3 s, skips while the window is hidden, re-polls at once on a connection/profile switch. |
 | `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/server-load/stats` via `psutil` (a Hermes core dependency) and `active_session_registry_snapshot()`. Returns only load figures, the hostname, per-client session counts and per-command process counts. |
+| `tui/server-load.mjs` | Hermes TUI (`<HERMES_HOME>/tui-widgets/`) | Ambient widget app `/server-load`; inlines `plugin_api.py` and runs it as a child (`python -c`) for the figures. |
 
 Without the backend half on the server, the chip shows `CPU —` (tooltip explains) and the
 poll backs off up to 60 s.
 
 ## Install
 
-Desktop half (this machine; ships off, enable it in **Capabilities → Plugins**):
+Desktop and TUI halves (this machine; the Desktop one ships off, enable it in
+**Capabilities → Plugins**; the TUI picks the widget up live, no restart):
 
 ```
-node scripts/build.mjs       # src/ -> desktop/plugin.js (inlines load.js)
-node scripts/install.mjs     # -> <hermes home>/desktop-plugins/server-load/
-                             # (Windows: %LOCALAPPDATA%\hermes, else ~/.hermes)
+node scripts/build.mjs       # src/ -> desktop/plugin.js, tui/server-load.mjs
+node scripts/install.mjs     # -> <hermes home>/desktop-plugins/server-load/plugin.js
+                             #    <hermes home>/tui-widgets/server-load.mjs
+                             # (Windows: %LOCALAPPDATA%\hermes, else ~/.hermes;
+                             #  --desktop or --tui for one half only)
 ```
+
+The TUI half needs nothing on a server: it measures the machine the TUI runs on.
 
 Backend half (on the machine running the backend your Desktop connects to, e.g. over SSH):
 
@@ -62,7 +88,7 @@ hermes plugins enable server-load                 # user plugins must be in plug
 ## Tests
 
 ```
-node --test test/load.test.mjs test/plugin.test.mjs                          # Desktop half
+node --test test/load.test.mjs test/plugin.test.mjs test/tui.test.mjs        # Desktop + TUI halves (build first)
 python -m unittest discover -s test -p "test_*.py"                           # backend unit
 HERMES_AGENT_SRC=<hermes-agent checkout> <hermes venv python> -m unittest discover -s test -p "test_*.py"
                                                                              # real psutil, registry + FastAPI route, temp HERMES_HOME
@@ -84,3 +110,7 @@ HERMES_AGENT_SRC=<hermes-agent checkout> <hermes venv python> -m unittest discov
 - English-only tooltip and settings; fixed thresholds and 3 s cadence (the settings page
   only picks the chip's figures). Hosts older than Settings ▸ Plugins show every figure.
 - The backend still measures everything: switching a figure off only hides it.
+- TUI: a TUI attached to a remote gateway still shows its own machine. On Windows psutil's
+  first process scan takes ~13 s of one core (750 processes; later scans ~0.1 s), so `⚙ N`
+  shows up that long after the card's first figures.
+- TUI: the Desktop and TUI options are separate (the Desktop's live in its local storage).
