@@ -9,7 +9,9 @@
  * shows "CPU —" and the poll backs off.
  *
  * Settings ▸ Plugins ▸ Server load switches each figure on or off in the chip
- * (persisted with ctx.storage); the tooltip always has the full detail.
+ * (persisted with ctx.storage); the tooltip has the full detail of what is
+ * measured. Clients and Hermes processes switched off are not measured at all:
+ * the poll asks the backend to skip them.
  *
  * Edit this file, then `node scripts/build.mjs`: load.js is inlined to give
  * the single plugin.js the runtime loader accepts.
@@ -23,7 +25,8 @@ const LEVEL_COLOR = { critical: '#ef4444', normal: undefined, warning: '#f59e0b'
 
 const LOADING = { status: 'loading' }
 
-function createLoadStore(ctx) {
+// `prefs`: the counts switched off are not measured on the server either (`?skip=`).
+function createLoadStore(ctx, prefs) {
   const listeners = new Set()
   let state = LOADING
   let failures = 0
@@ -52,7 +55,7 @@ function createLoadStore(ctx) {
     const mine = generation
 
     try {
-      const stats = await ctx.rest('/stats', { timeoutMs: 5000 })
+      const stats = await ctx.rest(statsPath(prefs.get()), { timeoutMs: 5000 })
 
       if (mine !== generation) {
         return
@@ -163,8 +166,8 @@ export default {
   description: 'CPU and RAM of the connected Hermes server, as a status-bar chip.',
   defaultEnabled: false,
   register(ctx) {
-    const store = createLoadStore(ctx)
     const prefs = atom(shownFigures(ctx.storage?.get('chip', {})))
+    const store = createLoadStore(ctx, prefs)
 
     const update = patch => {
       prefs.set({ ...prefs.get(), ...patch })
@@ -246,6 +249,20 @@ function shownFigures(saved) {
   }
 
   return shown
+}
+
+// The counts the backend skips measuring when they are hidden (the load figures cost nothing).
+const SERVER_SIDE = ['clients', 'processes']
+
+function skippedFigures(shown) {
+  return SERVER_SIDE.filter(id => !shown[id])
+}
+
+// A backend older than `?skip` ignores it and measures everything, as before.
+function statsPath(shown) {
+  const skip = skippedFigures(shown)
+
+  return skip.length ? `/stats?skip=${skip.join(',')}` : '/stats'
 }
 
 function chipLabel(stats, shown = ALL_SHOWN) {

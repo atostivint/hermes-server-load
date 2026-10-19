@@ -57,6 +57,20 @@ export function shownFigures(saved) {
   return shown
 }
 
+// The counts the backend skips measuring when they are hidden (the load figures cost nothing).
+export const SERVER_SIDE = ['clients', 'processes']
+
+export function skippedFigures(shown) {
+  return SERVER_SIDE.filter(id => !shown[id])
+}
+
+// A backend older than `?skip` ignores it and measures everything, as before.
+export function statsPath(shown) {
+  const skip = skippedFigures(shown)
+
+  return skip.length ? `/stats?skip=${skip.join(',')}` : '/stats'
+}
+
 export function chipLabel(stats, shown = ALL_SHOWN) {
   const parts = []
 

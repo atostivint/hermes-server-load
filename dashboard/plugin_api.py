@@ -15,6 +15,9 @@ python running one of them. A Hermes started by another Hermes (the Windows laun
 child, the TUI's ``tui_gateway``, an agent running ``hermes`` from its terminal) counts under
 its top-level ancestor. The Electron Desktop (``Hermes``, capitalised) is not counted.
 
+``?skip=clients,processes`` leaves those counts out and does not measure them: the chip asks
+for it when they are switched off in its settings (the TUI passes ``SERVER_LOAD_SKIP``).
+
 Only load figures, the hostname and per-surface / per-command counts leave this process: no
 session ids, process list, paths or env. Fail-open by contract: without psutil the route answers
 ``{"ok": false}``, and an unreadable registry or process table just omits that field.
@@ -149,18 +152,29 @@ def count_hermes_processes(procs: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return {"total": sum(by_command.values()), "by_command": dict(sorted(by_command.items()))}
 
 
-def snapshot(processes: bool = True) -> dict[str, Any]:
-    """The ``/stats`` body: load figures, then the client and process counts when readable."""
+# The figures a client can switch off server-side: the load figures cost one psutil call, the
+# counts a registry read and a full process scan (~50 ms of CPU per poll on 500 processes).
+SKIPPABLE = ("clients", "processes")
+
+
+def parse_skip(value: str | None) -> frozenset[str]:
+    """``"clients,processes"`` -> the skippable names in it; unknown names are ignored."""
+    return frozenset(name.strip() for name in (value or "").split(",")) & frozenset(SKIPPABLE)
+
+
+def snapshot(clients: bool = True, processes: bool = True) -> dict[str, Any]:
+    """The ``/stats`` body: load figures, then the client and process counts asked for, when readable."""
     body = collect_stats()
-    if body["ok"]:
+    if not body["ok"]:
+        return body
+    if clients:
         try:
             from hermes_cli.active_sessions import active_session_registry_snapshot
 
             body["clients"] = count_clients(active_session_registry_snapshot())
         except (ImportError, RuntimeError, OSError) as exc:  # ActiveSessionRegistryError is a RuntimeError
             logger.debug("server-load: session registry unreadable: %s", exc)
-        if not processes:
-            return body
+    if processes:
         try:
             rows = (p.info for p in psutil.process_iter(["pid", "ppid", "cmdline"]))
             body["processes"] = count_hermes_processes(rows)
@@ -169,12 +183,13 @@ def snapshot(processes: bool = True) -> dict[str, Any]:
     return body
 
 
-def stream(interval: float = 3.0, out: Any = None) -> None:
+def stream(interval: float = 3.0, out: Any = None, skip: frozenset[str] = frozenset()) -> None:
     """One ``snapshot()`` JSON line per ``interval``: the TUI widget's feed (``python -c`` on this file).
 
     The first line leaves out the process count: psutil's first full scan takes seconds on
-    Windows (~13 s for 750 processes), later ones a tenth of a second. Ends when the reader goes
-    away: a closed pipe, or a parent that died without closing it.
+    Windows (~13 s for 750 processes), later ones a tenth of a second. ``skip`` drops counts for
+    good (the figures the card hides). Ends when the reader goes away: a closed pipe, or a parent
+    that died without closing it.
     """
     import json
     import sys
@@ -186,7 +201,8 @@ def stream(interval: float = 3.0, out: Any = None) -> None:
     first = True
     while True:
         try:
-            out.write(json.dumps(snapshot(processes=not first)) + "\n")
+            body = snapshot(clients="clients" not in skip, processes=not first and "processes" not in skip)
+            out.write(json.dumps(body) + "\n")
             out.flush()
         except (BrokenPipeError, OSError, ValueError):  # ValueError: write to a closed file
             return
@@ -198,10 +214,12 @@ def stream(interval: float = 3.0, out: Any = None) -> None:
 
 if router is not None:
 
+    # ``?skip=clients,processes``: the counts the chip hides are not measured at all.
     @router.get("/stats")
-    def stats() -> dict[str, Any]:
-        return snapshot()
+    def stats(skip: str = "") -> dict[str, Any]:
+        skipped = parse_skip(skip)
+        return snapshot(clients="clients" not in skipped, processes="processes" not in skipped)
 
 
 if __name__ == "__main__":
-    stream(float(os.environ.get("SERVER_LOAD_INTERVAL", "3")))
+    stream(float(os.environ.get("SERVER_LOAD_INTERVAL", "3")), skip=parse_skip(os.environ.get("SERVER_LOAD_SKIP")))

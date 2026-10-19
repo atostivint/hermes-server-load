@@ -26,7 +26,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
-import { CHIP_FIGURES, chipLabel, levelOf, shownPercents, tooltipLines } from './load.js'
+import { CHIP_FIGURES, chipLabel, levelOf, shownPercents, skippedFigures, tooltipLines } from './load.js'
 import { applyOptions, describeOptions, OPTIONS, tuiOptions } from './options.js'
 
 // dashboard/plugin_api.py, inlined by scripts/build.mjs.
@@ -58,11 +58,14 @@ function srcRoot() {
   return candidates.find(dir => dir && existsSync(join(dir, 'hermes_cli')))
 }
 
-/** Starts the stats child; `onStats(body)` per line, `onStats(null)` once it is gone. Returns the stop. */
-export function startFeed(onStats, spawnFn = spawn) {
+/**
+ * Starts the stats child; `onStats(body)` per line, `onStats(null)` once it is gone. Returns the stop.
+ * `skip`: the counts the child does not measure (`"clients,processes"`).
+ */
+export function startFeed(onStats, spawnFn = spawn, skip = '') {
   // The interpreter the TUI's own gateway runs on (set by the hermes launcher).
   const python = process.env.HERMES_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
-  const env = { ...process.env, PYTHONUNBUFFERED: '1' }
+  const env = { ...process.env, PYTHONUNBUFFERED: '1', SERVER_LOAD_SKIP: skip }
   const src = srcRoot()
 
   // The client count imports hermes_cli, which needs the source root on the path (as the gateway gets it).
@@ -123,10 +126,13 @@ export default function register(sdk) {
 
   function Card({ options, t }) {
     const [feed, setFeed] = React.useState({ status: 'loading' })
+    const skip = skippedFigures(options).join(',')
 
+    // A new child when a count is switched on or off, so a hidden one is never measured.
     React.useEffect(
-      () => startFeed(body => setFeed(body?.ok ? { stats: body, status: 'ok' } : { status: 'unavailable' })),
-      []
+      () =>
+        startFeed(body => setFeed(body?.ok ? { stats: body, status: 'ok' } : { status: 'unavailable' }), spawn, skip),
+      [skip]
     )
 
     const lines = []

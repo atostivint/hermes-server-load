@@ -28,8 +28,10 @@ from its terminal. The Desktop app itself (`Hermes`, capitalised) is not counted
 
 **Settings ▸ Plugins ▸ Server load** has one switch per figure (CPU, Load average, RAM,
 Clients, Hermes processes), all on by default and saved per Desktop. A hidden figure no
-longer colours the chip; with everything off the chip is just its icon. The tooltip always
-shows the full detail.
+longer colours the chip; with everything off the chip is just its icon. The tooltip shows
+the full detail of what is measured. Clients and Hermes processes switched off are not
+measured at all: the chip polls `/stats?skip=clients,processes` and the server skips the
+registry read and the process scan (the TUI does the same for its own options).
 
 ## TUI
 
@@ -85,6 +87,19 @@ hermes plugins enable server-load                 # user plugins must be in plug
 # then restart that backend (hermes serve / dashboard)
 ```
 
+## Footprint
+
+Measured on Windows 11, 528 processes, Hermes venv python (2026-10-19):
+
+| What | Cost |
+|---|---|
+| `/stats` in `hermes serve`, everything on | ~55 ms of CPU per poll (~1.8 % of a core at 3 s), almost all of it the process scan |
+| `/stats?skip=processes` | ~0.6 ms per poll |
+| `/stats?skip=clients,processes` | ~0.1 ms per poll |
+| First process scan after start | ~5 s of one core |
+| TUI card child (`python -c`) | ~60 MB RSS (launcher + python); ~2 % of a core with processes on, ~0.4 % off |
+| Desktop half | one ~260-byte request every 3 s, none while the window is hidden |
+
 ## Tests
 
 ```
@@ -109,7 +124,8 @@ HERMES_AGENT_SRC=<hermes-agent checkout> <hermes venv python> -m unittest discov
   through `hermes serve` (tested against a plain FastAPI router).
 - English-only tooltip and settings; fixed thresholds and 3 s cadence (the settings page
   only picks the chip's figures). Hosts older than Settings ▸ Plugins show every figure.
-- The backend still measures everything: switching a figure off only hides it.
+- CPU, load and RAM are always measured (one psutil call each, under 2 ms); switching them
+  off only hides them.
 - TUI: a TUI attached to a remote gateway still shows its own machine. On Windows psutil's
   first process scan takes ~13 s of one core (750 processes; later scans ~0.1 s), so `⚙ N`
   shows up that long after the card's first figures.

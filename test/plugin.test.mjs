@@ -169,6 +169,26 @@ test('each figure has a switch in Settings, saved, and a hidden one stops colour
   plugin.dispose()
 })
 
+test('counts switched off are skipped on the server from the next poll', async () => {
+  const paths = []
+  const plugin = load(async path => {
+    paths.push(path)
+
+    return STATS
+  })
+
+  await plugin.fire()
+  plugin.toggles().find(row => row.props.label === 'Hermes processes').props.onChange(false)
+  await plugin.fire()
+  plugin.toggles().find(row => row.props.label === 'Clients').props.onChange(false)
+  // RAM is one psutil call: hiding it changes nothing server-side.
+  plugin.toggles().find(row => row.props.label === 'RAM').props.onChange(false)
+  await plugin.fire()
+
+  assert.deepEqual(paths, ['/stats', '/stats?skip=processes', '/stats?skip=clients,processes'])
+  plugin.dispose()
+})
+
 test('saved settings come back on load, and every figure off leaves the icon', async () => {
   const plugin = load(async () => STATS, {
     chip: { clients: false, cpu: false, load: false, processes: false, ram: false }
