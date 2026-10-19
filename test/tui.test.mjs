@@ -116,9 +116,10 @@ test('the feed runs plugin_api.py under the TUI python and parses split JSON lin
   const seen = []
   const stop = widget.startFeed(body => seen.push(body), spawn)
 
-  const [python, args] = calls[0]
+  const [python, args, options] = calls[0]
 
   assert.equal(python, '/venv/bin/python')
+  assert.equal(options.env.SERVER_LOAD_SKIP, '')
   assert.equal(args[0], '-c')
   assert.match(args[1], /def stream\(/)
   assert.match(args[1], /if __name__ == "__main__":/)
@@ -131,6 +132,15 @@ test('the feed runs plugin_api.py under the TUI python and parses split JSON lin
   assert.equal(child.killed, true)
   child.emit('exit') // our own kill is not "gone"
   assert.equal(seen.length, 2)
+})
+
+test('the counts the card hides are passed to the child, which skips them', () => {
+  const { calls, spawn } = fakeSpawn()
+
+  widget.startFeed(() => {}, spawn, 'clients,processes')()
+
+  assert.equal(calls[0][2].env.SERVER_LOAD_SKIP, 'clients,processes')
+  assert.match(calls[0][1][1], /SERVER_LOAD_SKIP/)
 })
 
 test('a missing python or a dead child reports the feed gone, once', () => {

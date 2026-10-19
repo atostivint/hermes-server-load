@@ -131,15 +131,15 @@ class CountHermesProcesses(unittest.TestCase):
 class Stream(unittest.TestCase):
     """The TUI feed: one snapshot JSON line per tick, the first one without the slow process scan."""
 
-    def run_stream(self, ticks):
+    def run_stream(self, ticks, skip=frozenset()):
         import io
         import json
 
         api = load_plugin_api()
         calls = []
 
-        def snapshot(processes=True):
-            calls.append(processes)
+        def snapshot(clients=True, processes=True):
+            calls.append((clients, processes) if skip else processes)
             return {"ok": True, "n": len(calls)}
 
         class Out(io.StringIO):
@@ -151,7 +151,7 @@ class Stream(unittest.TestCase):
         out = Out()
         api.snapshot = snapshot
         with mock.patch("time.sleep"):
-            api.stream(interval=3, out=out)
+            api.stream(interval=3, out=out, skip=skip)
         return calls, out.lines
 
     def test_lines_until_the_reader_goes_away_and_the_first_skips_processes(self):
@@ -159,6 +159,11 @@ class Stream(unittest.TestCase):
 
         self.assertEqual(lines, [{"ok": True, "n": 1}, {"ok": True, "n": 2}, {"ok": True, "n": 3}])
         self.assertEqual(calls[:3], [False, True, True])
+
+    def test_a_skipped_count_is_never_measured(self):
+        calls, _ = self.run_stream(ticks=3, skip=frozenset({"processes"}))
+
+        self.assertEqual(calls[:3], [(True, False)] * 3)
 
     def test_snapshot_without_processes_skips_the_scan(self):
         api = load_plugin_api()
@@ -169,6 +174,21 @@ class Stream(unittest.TestCase):
         self.assertNotIn("processes", api.snapshot(processes=False))
         api.psutil.process_iter.assert_not_called()
         self.assertEqual(api.snapshot()["processes"], {"total": 0, "by_command": {}})
+
+    def test_snapshot_without_clients_skips_the_registry(self):
+        api = load_plugin_api()
+        api.collect_stats = lambda: {"ok": True}
+        registry = mock.Mock(side_effect=AssertionError("registry read"))
+
+        with mock.patch.dict(sys.modules, {"hermes_cli.active_sessions": mock.Mock(active_session_registry_snapshot=registry)}):
+            self.assertEqual(api.snapshot(clients=False, processes=False), {"ok": True})
+
+    def test_skip_keeps_only_known_counts(self):
+        parse = load_plugin_api().parse_skip
+
+        self.assertEqual(parse("clients, processes"), {"clients", "processes"})
+        self.assertEqual(parse("cpu,ram,bogus"), frozenset(), "the load figures are always measured")
+        self.assertEqual(parse(None), frozenset())
 
 
 @unittest.skipUnless(SRC, "set HERMES_AGENT_SRC to run with the Hermes environment")
@@ -184,13 +204,21 @@ class RealRoute(unittest.TestCase):
         self.addCleanup(lambda: os.environ.__setitem__("HERMES_HOME", previous) if previous is not None
                         else os.environ.pop("HERMES_HOME", None))
 
-    def get_stats(self):
+    def get_stats(self, query=""):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         app = FastAPI()
         app.include_router(load_plugin_api().router, prefix="/api/plugins/server-load")
-        return TestClient(app).get("/api/plugins/server-load/stats").json()
+        return TestClient(app).get("/api/plugins/server-load/stats" + query).json()
+
+    def test_skip_leaves_the_counts_out(self):
+        body = self.get_stats("?skip=clients,processes")
+
+        self.assertTrue(body["ok"])
+        self.assertNotIn("clients", body)
+        self.assertNotIn("processes", body)
+        self.assertIn("processes", self.get_stats("?skip=clients"))
 
     def test_the_mounted_route_reports_this_machine(self):
         body = self.get_stats()
