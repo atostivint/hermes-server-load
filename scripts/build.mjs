@@ -1,7 +1,7 @@
 // Builds the two single-file halves that load at runtime:
 // - src/plugin.src.js + load.js -> desktop/plugin.js. The Desktop loader reads ONE
 //   plugin.js and rewrites only SDK/react specifiers, so a relative import would not resolve.
-// - src/tui.src.mjs + load.js + options.js + dashboard/plugin_api.py -> tui/server-load.mjs.
+// - src/tui.src.mjs + load.js + options.js + dashboard/plugin_api.py -> tui/hermes-vitals-light.mjs.
 //   The TUI imports one .mjs from <HERMES_HOME>/tui-widgets/ (node: builtins only).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -52,7 +52,7 @@ if (!tui.includes(placeholder)) {
 }
 
 write(
-  'tui/server-load.mjs',
+  'tui/hermes-vitals-light.mjs',
   inline(tui.replace(placeholder, `const STATS_PY = ${JSON.stringify(read('dashboard/plugin_api.py'))}`), [
     'load.js',
     'options.js'

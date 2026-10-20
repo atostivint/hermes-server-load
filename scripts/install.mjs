@@ -1,6 +1,6 @@
 // Installs the built halves of this machine:
-// - Desktop: desktop/plugin.js -> <hermes home>/desktop-plugins/server-load/plugin.js
-// - TUI:     tui/server-load.mjs -> <hermes home>/tui-widgets/server-load.mjs
+// - Desktop: desktop/plugin.js -> <hermes home>/desktop-plugins/hermes-vitals-light/plugin.js
+// - TUI:     tui/hermes-vitals-light.mjs -> <hermes home>/tui-widgets/hermes-vitals-light.mjs
 // Usage: node scripts/install.mjs [--desktop | --tui] [hermesHome]   (both by default)
 // Home resolution mirrors each reader: the Desktop follows hermes_constants ($HERMES_HOME,
 // else %LOCALAPPDATA%\hermes on Windows, else ~/.hermes); the TUI's widget loader reads
@@ -30,9 +30,9 @@ function install(from, dir, name) {
 }
 
 if (only !== '--tui') {
-  install('desktop/plugin.js', join(explicitHome || desktopHome(), 'desktop-plugins', 'server-load'), 'plugin.js')
+  install('desktop/plugin.js', join(explicitHome || desktopHome(), 'desktop-plugins', 'hermes-vitals-light'), 'plugin.js')
 }
 
 if (only !== '--desktop') {
-  install('tui/server-load.mjs', join(explicitHome || join(homedir(), '.hermes'), 'tui-widgets'), 'server-load.mjs')
+  install('tui/hermes-vitals-light.mjs', join(explicitHome || join(homedir(), '.hermes'), 'tui-widgets'), 'hermes-vitals-light.mjs')
 }

@@ -1,4 +1,4 @@
-// TUI half: the option syntax (src/options.js), then the BUILT tui/server-load.mjs registered
+// TUI half: the option syntax (src/options.js), then the BUILT tui/hermes-vitals-light.mjs registered
 // against a stub widget SDK, with a temp HERMES_HOME and a fake python child.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
@@ -45,22 +45,22 @@ test('saved options sit over the defaults; junk is ignored', () => {
 
 // ── the built widget ──
 
-process.env.HERMES_HOME = mkdtempSync(join(tmpdir(), 'server-load-'))
+process.env.HERMES_HOME = mkdtempSync(join(tmpdir(), 'hermes-vitals-light-'))
 
-const widget = await import(pathToFileURL(join(import.meta.dirname, '../tui/server-load.mjs')).href)
+const widget = await import(pathToFileURL(join(import.meta.dirname, '../tui/hermes-vitals-light.mjs')).href)
 const apps = new Map()
 const h = (type, props, ...children) => ({ children, props, type })
 
 widget.default({ Box: 'Box', defineWidgetApp: app => apps.set(app.id, app), h, React: {}, Text: 'Text' })
 
-const app = apps.get('server-load')
+const app = apps.get('hermes-vitals-light')
 
 test('the widget docks as an ambient app; options persist in HERMES_HOME', () => {
   assert.equal(app.mode, 'ambient')
   assert.deepEqual(app.init(''), { options: TUI_DEFAULTS })
 
   assert.deepEqual(app.init('ram off detail on'), { options: { ...TUI_DEFAULTS, detail: true, ram: false } })
-  assert.deepEqual(JSON.parse(readFileSync(join(process.env.HERMES_HOME, 'server-load.json'), 'utf8')), {
+  assert.deepEqual(JSON.parse(readFileSync(join(process.env.HERMES_HOME, 'vitals.json'), 'utf8')), {
     ...TUI_DEFAULTS,
     detail: true,
     ram: false
@@ -75,7 +75,7 @@ test('a refused command prints the usage with the current options', () => {
   app.init('cpu off')
 
   assert.equal(app.init('help'), null)
-  assert.match(app.usage, /^usage: \/server-load \[cpu\|load\|ram\|clients\|processes\|detail\|all \[on\|off\]\] \[reset\]/)
+  assert.match(app.usage, /^usage: \/vitals \[cpu\|load\|ram\|clients\|processes\|detail\|all \[on\|off\]\] \[reset\]/)
   assert.match(app.usage, /now: cpu off · load on/)
 
   app.init('reset')
@@ -119,7 +119,7 @@ test('the feed runs plugin_api.py under the TUI python and parses split JSON lin
   const [python, args, options] = calls[0]
 
   assert.equal(python, '/venv/bin/python')
-  assert.equal(options.env.SERVER_LOAD_SKIP, '')
+  assert.equal(options.env.VITALS_SKIP, '')
   assert.equal(args[0], '-c')
   assert.match(args[1], /def stream\(/)
   assert.match(args[1], /if __name__ == "__main__":/)
@@ -139,8 +139,8 @@ test('the counts the card hides are passed to the child, which skips them', () =
 
   widget.startFeed(() => {}, spawn, 'clients,processes')()
 
-  assert.equal(calls[0][2].env.SERVER_LOAD_SKIP, 'clients,processes')
-  assert.match(calls[0][1][1], /SERVER_LOAD_SKIP/)
+  assert.equal(calls[0][2].env.VITALS_SKIP, 'clients,processes')
+  assert.match(calls[0][1][1], /VITALS_SKIP/)
 })
 
 test('a missing python or a dead child reports the feed gone, once', () => {

@@ -1,7 +1,7 @@
-# server-load: CPU / RAM of the connected Hermes server in the Desktop status bar.
+# hermes-vitals-light: CPU / RAM of the connected Hermes server in the Desktop status bar.
 # Backend half = dashboard/plugin_api.py (read-only route); Desktop half = desktop/plugin.js.
-name: server-load
-id: server-load
+name: hermes-vitals-light
+id: hermes-vitals-light
 kind: standalone
 version: 0.1.0
 description: >

@@ -1,5 +1,5 @@
 /**
- * server-load — a status-bar chip with the CPU, load average and RAM of the
+ * hermes-vitals-light — a status-bar chip with the CPU, load average and RAM of the
  * server the Desktop is connected to ("CPU 23% · Load 1.20 · RAM 61%"),
  * detail in the tooltip.
  *
@@ -8,7 +8,7 @@
  * gateway it measures the remote box. Without that half on the server the chip
  * shows "CPU —" and the poll backs off.
  *
- * Settings ▸ Plugins ▸ Server load switches each figure on or off in the chip
+ * Settings ▸ Plugins ▸ Hermes Vitals Light switches each figure on or off in the chip
  * (persisted with ctx.storage); the tooltip has the full detail of what is
  * measured. Clients and Hermes processes switched off are not measured at all:
  * the poll asks the backend to skip them.
@@ -125,7 +125,7 @@ function LoadChip({ prefs, store }) {
 
   if (state.status === 'unavailable') {
     return jsx(Tip, {
-      label: 'Server load unavailable: enable the server-load plugin on this server, then restart its backend.',
+      label: 'Hermes Vitals Light unavailable: enable the hermes-vitals-light plugin on this server, then restart its backend.',
       children: jsxs('span', {
         className: CHIP_CLASS,
         children: [jsx(Codicon, { name: 'pulse', size: '0.7rem' }), jsx('span', { children: 'CPU —' })]
@@ -161,8 +161,8 @@ function ChipSettings({ prefs, update }) {
 }
 
 export default {
-  id: 'server-load',
-  name: 'Server load',
+  id: 'hermes-vitals-light',
+  name: 'Hermes Vitals Light',
   description: 'CPU and RAM of the connected Hermes server, as a status-bar chip.',
   defaultEnabled: false,
   register(ctx) {
@@ -184,7 +184,7 @@ export default {
     // Feature-detected: older hosts have no Settings ▸ Plugins page, the chip shows everything.
     ctx.registerSettingsPage?.({
       id: 'settings',
-      title: 'Server load',
+      title: 'Hermes Vitals Light',
       icon: 'pulse',
       render: () => jsx(ChipSettings, { prefs, update })
     })

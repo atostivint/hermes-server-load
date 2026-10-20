@@ -1,4 +1,6 @@
-# hermes-server-load
+<img src="assets/logo.svg" alt="Hermes Vitals Light" width="72" align="right">
+
+# Hermes Vitals Light
 
 Hermes **Desktop** and **TUI** plugin that shows the CPU, load average and RAM of the server the Desktop is
 connected to as a status-bar chip: `CPU 23% · Load 1.20 · RAM 61%`. On a remote gateway (SSH, URL +
@@ -26,7 +28,7 @@ users it can see: each `hermes` command (`serve`, `chat`, `gateway`, `dashboard`
 Windows launcher and its python children, the TUI's `tui_gateway`, a `hermes` an agent runs
 from its terminal. The Desktop app itself (`Hermes`, capitalised) is not counted.
 
-**Settings ▸ Plugins ▸ Server load** has one switch per figure (CPU, Load average, RAM,
+**Settings ▸ Plugins ▸ Hermes Vitals Light** has one switch per figure (CPU, Load average, RAM,
 Clients, Hermes processes), all on by default and saved per Desktop. A hidden figure no
 longer colours the chip; with everything off the chip is just its icon. The tooltip shows
 the full detail of what is measured. Clients and Hermes processes switched off are not
@@ -42,15 +44,15 @@ for as long as the card is docked.
 
 | Command | Effect |
 |---|---|
-| `/server-load` | dock / undock the card |
-| `/server-load ram off` | hide a figure: `cpu`, `load`, `ram`, `clients`, `processes` (`on` shows it, no `on`/`off` flips it) |
-| `/server-load detail on` | add the Desktop tooltip lines (hostname, cores, 5/15-min load, RAM used / total, per-client and per-command counts) |
-| `/server-load all on` · `all off` | every figure (not `detail`) |
-| `/server-load reset` | back to the defaults: every figure on, `detail` off |
-| `/server-load help` | usage and the current options |
+| `/vitals` | dock / undock the card |
+| `/vitals ram off` | hide a figure: `cpu`, `load`, `ram`, `clients`, `processes` (`on` shows it, no `on`/`off` flips it) |
+| `/vitals detail on` | add the Desktop tooltip lines (hostname, cores, 5/15-min load, RAM used / total, per-client and per-command counts) |
+| `/vitals all on` · `all off` | every figure (not `detail`) |
+| `/vitals reset` | back to the defaults: every figure on, `detail` off |
+| `/vitals help` | usage and the current options |
 
-Several go in one command (`/server-load cpu off load off detail on`); changing an option
-docks the card. Options are saved in `<HERMES_HOME>/server-load.json`, shared by every TUI
+Several go in one command (`/vitals cpu off load off detail on`); changing an option
+docks the card. Options are saved in `<HERMES_HOME>/vitals.json`, shared by every TUI
 of that home (the Desktop keeps its own, in Settings ▸ Plugins).
 
 Three halves, one package (same layout as other unified Hermes plugins):
@@ -58,8 +60,8 @@ Three halves, one package (same layout as other unified Hermes plugins):
 | Half | Where it runs | What it does |
 |---|---|---|
 | `desktop/plugin.js` | Hermes Desktop (renderer) | Chip in `statusBar.right`; polls `/stats` every 3 s, skips while the window is hidden, re-polls at once on a connection/profile switch. |
-| `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/server-load/stats` via `psutil` (a Hermes core dependency) and `active_session_registry_snapshot()`. Returns only load figures, the hostname, per-client session counts and per-command process counts. |
-| `tui/server-load.mjs` | Hermes TUI (`<HERMES_HOME>/tui-widgets/`) | Ambient widget app `/server-load`; inlines `plugin_api.py` and runs it as a child (`python -c`) for the figures. |
+| `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/hermes-vitals-light/stats` via `psutil` (a Hermes core dependency) and `active_session_registry_snapshot()`. Returns only load figures, the hostname, per-client session counts and per-command process counts. |
+| `tui/hermes-vitals-light.mjs` | Hermes TUI (`<HERMES_HOME>/tui-widgets/`) | Ambient widget app `/vitals`; inlines `plugin_api.py` and runs it as a child (`python -c`) for the figures. |
 
 Without the backend half on the server, the chip shows `CPU —` (tooltip explains) and the
 poll backs off up to 60 s.
@@ -70,9 +72,9 @@ Desktop and TUI halves (this machine; the Desktop one ships off, enable it in
 **Capabilities → Plugins**; the TUI picks the widget up live, no restart):
 
 ```
-node scripts/build.mjs       # src/ -> desktop/plugin.js, tui/server-load.mjs
-node scripts/install.mjs     # -> <hermes home>/desktop-plugins/server-load/plugin.js
-                             #    <hermes home>/tui-widgets/server-load.mjs
+node scripts/build.mjs       # src/ -> desktop/plugin.js, tui/hermes-vitals-light.mjs
+node scripts/install.mjs     # -> <hermes home>/desktop-plugins/hermes-vitals-light/plugin.js
+                             #    <hermes home>/tui-widgets/hermes-vitals-light.mjs
                              # (Windows: %LOCALAPPDATA%\hermes, else ~/.hermes;
                              #  --desktop or --tui for one half only)
 ```
@@ -82,8 +84,8 @@ The TUI half needs nothing on a server: it measures the machine the TUI runs on.
 Backend half (on the machine running the backend your Desktop connects to, e.g. over SSH):
 
 ```
-hermes plugins install https://github.com/atostivint/hermes-server-load --enable
-hermes plugins enable server-load                 # user plugins must be in plugins.enabled
+hermes plugins install https://github.com/atostivint/hermes-vitals-light --enable
+hermes plugins enable hermes-vitals-light                 # user plugins must be in plugins.enabled
 # then restart that backend (hermes serve / dashboard)
 ```
 
