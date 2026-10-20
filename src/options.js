@@ -1,4 +1,4 @@
-// The TUI widget's options and its `/server-load <option> [on|off]` syntax.
+// The TUI widget's options and its `/vitals <option> [on|off]` syntax.
 // Pure, like load.js: the tests import it directly.
 
 import { CHIP_FIGURES } from './load.js'

@@ -1,4 +1,4 @@
-"""server-load backend, mounted at ``/api/plugins/server-load/``.
+"""hermes-vitals-light backend, mounted at ``/api/plugins/hermes-vitals-light/``.
 
 One read-only route, ``GET /stats``: CPU and memory of the machine running the Hermes backend the
 Desktop is connected to (``hermes serve`` runs this file in-process, so a remote gateway reports
@@ -16,7 +16,7 @@ child, the TUI's ``tui_gateway``, an agent running ``hermes`` from its terminal)
 its top-level ancestor. The Electron Desktop (``Hermes``, capitalised) is not counted.
 
 ``?skip=clients,processes`` leaves those counts out and does not measure them: the chip asks
-for it when they are switched off in its settings (the TUI passes ``SERVER_LOAD_SKIP``).
+for it when they are switched off in its settings (the TUI passes ``VITALS_SKIP``).
 
 Only load figures, the hostname and per-surface / per-command counts leave this process: no
 session ids, process list, paths or env. Fail-open by contract: without psutil the route answers
@@ -173,13 +173,13 @@ def snapshot(clients: bool = True, processes: bool = True) -> dict[str, Any]:
 
             body["clients"] = count_clients(active_session_registry_snapshot())
         except (ImportError, RuntimeError, OSError) as exc:  # ActiveSessionRegistryError is a RuntimeError
-            logger.debug("server-load: session registry unreadable: %s", exc)
+            logger.debug("hermes-vitals-light: session registry unreadable: %s", exc)
     if processes:
         try:
             rows = (p.info for p in psutil.process_iter(["pid", "ppid", "cmdline"]))
             body["processes"] = count_hermes_processes(rows)
         except Exception as exc:  # psutil.Error, OSError: the chip just loses the count
-            logger.debug("server-load: process table unreadable: %s", exc)
+            logger.debug("hermes-vitals-light: process table unreadable: %s", exc)
     return body
 
 
@@ -222,4 +222,4 @@ if router is not None:
 
 
 if __name__ == "__main__":
-    stream(float(os.environ.get("SERVER_LOAD_INTERVAL", "3")), skip=parse_skip(os.environ.get("SERVER_LOAD_SKIP")))
+    stream(float(os.environ.get("VITALS_INTERVAL", "3")), skip=parse_skip(os.environ.get("VITALS_SKIP")))

@@ -152,7 +152,7 @@ test('each figure has a switch in Settings, saved, and a hidden one stops colour
   await plugin.fire()
 
   const rows = plugin.toggles()
-  assert.equal(plugin.pages[0].title, 'Server load')
+  assert.equal(plugin.pages[0].title, 'Hermes Vitals Light')
   assert.deepEqual(
     rows.map(row => row.props.label),
     ['CPU', 'Load average', 'RAM', 'Clients', 'Hermes processes']

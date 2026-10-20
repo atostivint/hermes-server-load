@@ -21,7 +21,7 @@ SRC = os.environ.get("HERMES_AGENT_SRC")
 
 def load_plugin_api():
     # Same way the dashboard loads it: a standalone module from its file path.
-    spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_server_load", ROOT / "dashboard/plugin_api.py")
+    spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_hermes_vitals_light", ROOT / "dashboard/plugin_api.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -209,8 +209,8 @@ class RealRoute(unittest.TestCase):
         from fastapi.testclient import TestClient
 
         app = FastAPI()
-        app.include_router(load_plugin_api().router, prefix="/api/plugins/server-load")
-        return TestClient(app).get("/api/plugins/server-load/stats" + query).json()
+        app.include_router(load_plugin_api().router, prefix="/api/plugins/hermes-vitals-light")
+        return TestClient(app).get("/api/plugins/hermes-vitals-light/stats" + query).json()
 
     def test_skip_leaves_the_counts_out(self):
         body = self.get_stats("?skip=clients,processes")

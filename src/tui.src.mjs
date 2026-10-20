@@ -1,5 +1,5 @@
 /**
- * server-load for the Hermes TUI (`hermes --tui`) — the Desktop chip as an
+ * hermes-vitals-light for the Hermes TUI (`hermes --tui`) — the Desktop chip as an
  * ambient card docked above the status bar: "CPU 23% · Load 1.20 · RAM 61%
  * · 👥 2 · ⚙ 3", coloured by its worst figure.
  *
@@ -8,17 +8,17 @@
  * python, which prints the /stats body every 3 s. The child lives as long as
  * the card is docked.
  *
- *   /server-load                 dock / undock the card
- *   /server-load ram off         hide a figure (cpu, load, ram, clients, processes)
- *   /server-load detail on       add the tooltip lines under the chip line
- *   /server-load all on | reset  every figure / back to the defaults
- *   /server-load help            usage and the current options
+ *   /vitals                 dock / undock the card
+ *   /vitals ram off         hide a figure (cpu, load, ram, clients, processes)
+ *   /vitals detail on       add the tooltip lines under the chip line
+ *   /vitals all on | reset  every figure / back to the defaults
+ *   /vitals help            usage and the current options
  *
- * Options persist in <HERMES_HOME>/server-load.json, shared by every TUI of
+ * Options persist in <HERMES_HOME>/vitals.json, shared by every TUI of
  * that home.
  *
  * Edit this file, then `node scripts/build.mjs`: load.js, options.js and
- * plugin_api.py are inlined to give the single tui/server-load.mjs the TUI
+ * plugin_api.py are inlined to give the single tui/hermes-vitals-light.mjs the TUI
  * loads from <HERMES_HOME>/tui-widgets/.
  */
 
@@ -32,7 +32,7 @@ import { applyOptions, describeOptions, OPTIONS, tuiOptions } from './options.js
 // dashboard/plugin_api.py, inlined by scripts/build.mjs.
 const STATS_PY = ''
 
-const optionsFile = () => join(process.env.HERMES_HOME?.trim() || join(homedir(), '.hermes'), 'server-load.json')
+const optionsFile = () => join(process.env.HERMES_HOME?.trim() || join(homedir(), '.hermes'), 'vitals.json')
 
 function loadOptions() {
   try {
@@ -65,7 +65,7 @@ function srcRoot() {
 export function startFeed(onStats, spawnFn = spawn, skip = '') {
   // The interpreter the TUI's own gateway runs on (set by the hermes launcher).
   const python = process.env.HERMES_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
-  const env = { ...process.env, PYTHONUNBUFFERED: '1', SERVER_LOAD_SKIP: skip }
+  const env = { ...process.env, PYTHONUNBUFFERED: '1', VITALS_SKIP: skip }
   const src = srcRoot()
 
   // The client count imports hermes_cli, which needs the source root on the path (as the gateway gets it).
@@ -119,7 +119,7 @@ export function cardWidth(options) {
 }
 
 // A function: the inlined modules (OPTIONS) are declared after this file's body.
-export const usage = () => `usage: /server-load [${OPTIONS.join('|')}|all [on|off]] [reset]`
+export const usage = () => `usage: /vitals [${OPTIONS.join('|')}|all [on|off]] [reset]`
 
 export default function register(sdk) {
   const { Box, React, Text, defineWidgetApp, h } = sdk
@@ -138,10 +138,10 @@ export default function register(sdk) {
     const lines = []
 
     if (feed.status === 'loading') {
-      lines.push(h(Text, { color: t.color.muted, key: 'chip' }, 'server load…'))
+      lines.push(h(Text, { color: t.color.muted, key: 'chip' }, 'vitals…'))
     } else if (feed.status === 'unavailable') {
       lines.push(
-        h(Text, { color: t.color.error, key: 'chip', wrap: 'truncate-end' }, 'server load unavailable (python/psutil)')
+        h(Text, { color: t.color.error, key: 'chip', wrap: 'truncate-end' }, 'vitals unavailable (python/psutil)')
       )
     } else {
       const { stats } = feed
@@ -166,10 +166,10 @@ export default function register(sdk) {
   }
 
   defineWidgetApp({
-    id: 'server-load',
+    id: 'hermes-vitals-light',
     help: 'CPU, load, RAM, clients and Hermes processes of this machine (args: options)',
     mode: 'ambient',
-    // A getter: the TUI prints `usage` when init refuses, which makes `/server-load help`
+    // A getter: the TUI prints `usage` when init refuses, which makes `/vitals help`
     // (or a typo) show the options as they are now.
     get usage() {
       return `${usage()}\nnow: ${describeOptions(loadOptions())}`
