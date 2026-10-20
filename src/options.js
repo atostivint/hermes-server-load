@@ -3,10 +3,13 @@
 
 import { CHIP_FIGURES } from './load.js'
 
-// Chip figures plus `detail` (the Desktop tooltip lines under the chip line, off by default).
-export const OPTIONS = [...CHIP_FIGURES.map(({ id }) => id), 'detail']
+// The chip figures the TUI card can show.
+const TUI_FIGURES = CHIP_FIGURES.filter(({ tui }) => tui !== false).map(({ id }) => id)
 
-export const TUI_DEFAULTS = { ...Object.fromEntries(CHIP_FIGURES.map(({ id }) => [id, true])), detail: false }
+// Those plus `detail` (the Desktop tooltip lines under the chip line, off by default).
+export const OPTIONS = [...TUI_FIGURES, 'detail']
+
+export const TUI_DEFAULTS = { ...Object.fromEntries(TUI_FIGURES.map(id => [id, true])), detail: false }
 
 // Saved options over the defaults, so an option added later starts at its default.
 export function tuiOptions(saved) {
@@ -40,7 +43,7 @@ export function applyOptions(arg, current) {
       continue
     }
 
-    const ids = word === 'all' ? CHIP_FIGURES.map(({ id }) => id) : OPTIONS.includes(word) ? [word] : null
+    const ids = word === 'all' ? TUI_FIGURES : OPTIONS.includes(word) ? [word] : null
 
     if (!ids) {
       return null

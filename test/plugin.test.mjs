@@ -155,7 +155,7 @@ test('each figure has a switch in Settings, saved, and a hidden one stops colour
   assert.equal(plugin.pages[0].title, 'Hermes Vitals Light')
   assert.deepEqual(
     rows.map(row => row.props.label),
-    ['CPU', 'Load average', 'RAM', 'Clients', 'Hermes processes']
+    ['CPU', 'Load average', 'RAM', 'Active sessions', 'Hermes processes']
   )
   assert.ok(rows.every(row => row.props.checked))
 
@@ -180,7 +180,7 @@ test('counts switched off are skipped on the server from the next poll', async (
   await plugin.fire()
   plugin.toggles().find(row => row.props.label === 'Hermes processes').props.onChange(false)
   await plugin.fire()
-  plugin.toggles().find(row => row.props.label === 'Clients').props.onChange(false)
+  plugin.toggles().find(row => row.props.label === 'Active sessions').props.onChange(false)
   // RAM is one psutil call: hiding it changes nothing server-side.
   plugin.toggles().find(row => row.props.label === 'RAM').props.onChange(false)
   await plugin.fire()

@@ -10,7 +10,9 @@ import importlib.util
 import os
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -57,16 +59,104 @@ class CollectStats(unittest.TestCase):
         self.assertEqual(load_plugin_api().collect_stats(None), {"ok": False})
 
 
-class CountClients(unittest.TestCase):
-    def test_only_per_surface_counts_leave_the_process(self):
-        counts = load_plugin_api().count_clients([
-            {"session_id": "s1", "surface": "desktop", "pid": 1, "lease_id": "a"},
-            {"session_id": "s2", "surface": "bighelp", "metadata": {"user_id": "u"}},
-            {"session_id": "s3", "surface": "desktop"},
-            {"session_id": "s4"},
-        ])
+class FakeStatus:
+    """A local HTTP server answering ``/api/status`` like Hermes does, and counting the asks."""
 
-        self.assertEqual(counts, {"total": 4, "by_surface": {"bighelp": 1, "desktop": 2, "unknown": 1}})
+    def __init__(self, body=b'{"active_sessions": 3, "version": "x"}'):
+        self.hits = 0
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                outer.hits += 1
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        self.url = f"http://127.0.0.1:{self.port}/api/status"
+
+    def __enter__(self):
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return self
+
+    def __exit__(self, *exc):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class StatusUrl(unittest.TestCase):
+    def test_it_is_the_socket_the_request_arrived_on_not_the_host_header(self):
+        status_url = load_plugin_api().status_url
+
+        self.assertEqual(status_url({"server": ("127.0.0.1", 9119), "scheme": "http"}), "http://127.0.0.1:9119/api/status")
+        self.assertEqual(status_url({"server": ("0.0.0.0", 9119), "scheme": "http"}), "http://127.0.0.1:9119/api/status")
+        self.assertEqual(status_url({"server": ("::", 9119), "scheme": "http"}), "http://[::1]:9119/api/status")
+        self.assertEqual(status_url({"server": ("10.0.0.5", 443), "scheme": "https"}), "https://10.0.0.5:443/api/status")
+
+    def test_no_tcp_address_means_nothing_to_ask(self):
+        status_url = load_plugin_api().status_url
+
+        self.assertIsNone(status_url({"server": ("/run/hermes.sock", None)}))
+        self.assertIsNone(status_url({}))
+
+
+class ActiveSessions(unittest.TestCase):
+    def test_it_reads_the_count_from_status_even_with_a_proxy_configured(self):
+        with FakeStatus() as status, mock.patch.dict(os.environ, {"HTTP_PROXY": "http://127.0.0.1:1", "http_proxy": "http://127.0.0.1:1"}):
+            self.assertEqual(load_plugin_api().active_sessions(status.url), 3)
+
+    def test_the_answer_is_cached_for_the_ttl(self):
+        api = load_plugin_api()
+        now = [100.0]
+
+        with FakeStatus() as status:
+            self.assertEqual(api.active_sessions(status.url, clock=lambda: now[0]), 3)
+            now[0] += api.STATUS_TTL - 1
+            self.assertEqual(api.active_sessions(status.url, clock=lambda: now[0]), 3)
+            self.assertEqual(status.hits, 1)
+            now[0] += 2
+            api.active_sessions(status.url, clock=lambda: now[0])
+            self.assertEqual(status.hits, 2)
+
+    def test_an_unreachable_server_is_none_and_is_not_asked_again_within_the_ttl(self):
+        api = load_plugin_api()
+
+        with mock.patch.object(api._no_proxy, "open", side_effect=OSError("refused")) as opened:
+            self.assertIsNone(api.active_sessions("http://127.0.0.1:1/api/status", clock=lambda: 100.0))
+            self.assertIsNone(api.active_sessions("http://127.0.0.1:1/api/status", clock=lambda: 101.0))
+            self.assertEqual(opened.call_count, 1)
+
+    def test_an_answer_that_is_not_a_count_is_none(self):
+        for body in (b"[]", b"not json", b'{"active_sessions": "3"}', b'{"active_sessions": true}', b"{}"):
+            with FakeStatus(body) as status:
+                self.assertIsNone(load_plugin_api().active_sessions(status.url), body)
+
+
+class SnapshotClients(unittest.TestCase):
+    def snapshot(self, **kwargs):
+        api = load_plugin_api()
+        api.collect_stats = lambda: {"ok": True}
+        return api.snapshot(processes=False, **kwargs)
+
+    def test_the_count_is_a_bare_total(self):
+        with FakeStatus() as status:
+            self.assertEqual(self.snapshot(url=status.url)["clients"], {"total": 3})
+
+    def test_a_count_switched_off_is_never_asked(self):
+        with FakeStatus() as status:
+            self.assertNotIn("clients", self.snapshot(clients=False, url=status.url))
+            self.assertEqual(status.hits, 0)
+
+    def test_without_a_server_or_an_answer_the_count_is_left_out(self):
+        self.assertNotIn("clients", self.snapshot())
+        with FakeStatus(b"{}") as status:
+            self.assertNotIn("clients", self.snapshot(url=status.url))
 
 
 class HermesCommand(unittest.TestCase):
@@ -175,13 +265,11 @@ class Stream(unittest.TestCase):
         api.psutil.process_iter.assert_not_called()
         self.assertEqual(api.snapshot()["processes"], {"total": 0, "by_command": {}})
 
-    def test_snapshot_without_clients_skips_the_registry(self):
+    def test_the_feed_has_no_server_so_no_session_count(self):
         api = load_plugin_api()
         api.collect_stats = lambda: {"ok": True}
-        registry = mock.Mock(side_effect=AssertionError("registry read"))
 
-        with mock.patch.dict(sys.modules, {"hermes_cli.active_sessions": mock.Mock(active_session_registry_snapshot=registry)}):
-            self.assertEqual(api.snapshot(clients=False, processes=False), {"ok": True})
+        self.assertEqual(api.snapshot(clients=True, processes=False), {"ok": True})
 
     def test_skip_keeps_only_known_counts(self):
         parse = load_plugin_api().parse_skip
@@ -193,7 +281,7 @@ class Stream(unittest.TestCase):
 
 @unittest.skipUnless(SRC, "set HERMES_AGENT_SRC to run with the Hermes environment")
 class RealRoute(unittest.TestCase):
-    # Temp HERMES_HOME: the route reads (and prunes) the session registry of the current home.
+    # Temp HERMES_HOME, so nothing here touches the real one.
     def setUp(self):
         if SRC not in sys.path:
             sys.path.insert(0, SRC)
@@ -204,13 +292,13 @@ class RealRoute(unittest.TestCase):
         self.addCleanup(lambda: os.environ.__setitem__("HERMES_HOME", previous) if previous is not None
                         else os.environ.pop("HERMES_HOME", None))
 
-    def get_stats(self, query=""):
+    def get_stats(self, query="", base_url="http://testserver"):
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         app = FastAPI()
         app.include_router(load_plugin_api().router, prefix="/api/plugins/hermes-vitals-light")
-        return TestClient(app).get("/api/plugins/hermes-vitals-light/stats" + query).json()
+        return TestClient(app, base_url=base_url).get("/api/plugins/hermes-vitals-light/stats" + query).json()
 
     def test_skip_leaves_the_counts_out(self):
         body = self.get_stats("?skip=clients,processes")
@@ -226,17 +314,16 @@ class RealRoute(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertGreater(body["memory"]["total"], 0)
         self.assertTrue(0 <= body["cpu_percent"] <= 100)
-        self.assertEqual(body["clients"], {"total": 0, "by_surface": {}})
         self.assertEqual(body["processes"]["total"], sum(body["processes"]["by_command"].values()))
 
-    def test_a_session_held_by_a_client_is_counted_under_its_source(self):
-        from hermes_cli.active_sessions import release_active_session, try_acquire_active_session
+    def test_the_route_asks_the_server_it_runs_in_for_the_session_count(self):
+        # The test client's server address is the fake status server's: what a real request would carry.
+        with FakeStatus() as status:
+            body = self.get_stats(base_url=f"http://127.0.0.1:{status.port}")
 
-        lease, refusal = try_acquire_active_session(session_id="sess-1", surface="mobile", config={})
-        self.assertIsNone(refusal)
-        self.addCleanup(release_active_session, lease)
-
-        self.assertEqual(self.get_stats()["clients"], {"total": 1, "by_surface": {"mobile": 1}})
+            self.assertEqual(body["clients"], {"total": 3})
+            self.assertEqual(status.hits, 1)
+            self.assertNotIn("clients", self.get_stats("?skip=clients", base_url=f"http://127.0.0.1:{status.port}"))
 
 
 if __name__ == "__main__":

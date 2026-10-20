@@ -4,10 +4,13 @@ One read-only route, ``GET /stats``: CPU and memory of the machine running the H
 Desktop is connected to (``hermes serve`` runs this file in-process, so a remote gateway reports
 the remote box, not the Desktop's), plus how many sessions each client holds right now.
 
-The client count reads the active-session registry (``active_session_registry_snapshot``), keyed
-by the ``source`` a client sends on ``session.create`` (``desktop``, ``bighelp``, ``mobile`` for
-Conduit) or ``gateway:<platform>`` for messaging. The registry is per profile and shared across
-processes; a client shows up from its first message, not from connecting.
+The session count is Hermes's own ``active_sessions`` figure from its public ``GET /api/status``
+(sessions not ended and active in the last 5 minutes, among the 50 most recent, current profile).
+The route asks the server it runs in over loopback, on the socket address the request arrived
+on (not its ``Host`` header: behind an SSH tunnel that is the tunnel's port). ``/api/status`` does
+much more than count, so the answer is cached for 15 s, failures included. It needs the route to
+run inside the server (``plugins.isolation: in_process``, the default); in the plugin host there
+is no address to ask, and the count is left out. It is a total: no per-client breakdown.
 
 The process count is every Hermes executable running on the box, any profile: ``hermes``
 (per subcommand: ``serve``, ``chat``, ``gateway``…), ``hermes-agent``, ``hermes-acp``, or a
@@ -18,9 +21,10 @@ its top-level ancestor. The Electron Desktop (``Hermes``, capitalised) is not co
 ``?skip=clients,processes`` leaves those counts out and does not measure them: the chip asks
 for it when they are switched off in its settings (the TUI passes ``VITALS_SKIP``).
 
-Only load figures, the hostname and per-surface / per-command counts leave this process: no
+Only load figures, the hostname and the session / per-command counts leave this process: no
 session ids, process list, paths or env. Fail-open by contract: without psutil the route answers
-``{"ok": false}``, and an unreadable registry or process table just omits that field.
+``{"ok": false}``, and an unreachable ``/api/status`` or unreadable process table just omits
+that field.
 
 The dashboard loader imports this file as a top-level module, so it stays self-contained. The TUI
 widget (``src/tui.src.mjs``) inlines it too and runs it as ``python -c``: ``stream()`` prints the
@@ -29,17 +33,21 @@ same body as a JSON line every 3 s.
 
 from __future__ import annotations
 
+import http.client
+import json
 import logging
 import os
 import platform
 import re
+import time
+import urllib.request
 from collections import Counter
 from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
 
 try:  # FastAPI exists in the serve/dashboard env, not in the plugin's unit-test env.
-    from fastapi import APIRouter
+    from fastapi import APIRouter, Request
 
     router = APIRouter()
 except ImportError:  # pragma: no cover - unit env without FastAPI
@@ -72,9 +80,44 @@ def collect_stats(ps: Any = psutil) -> dict[str, Any]:
     return stats
 
 
-def count_clients(entries: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    by_surface = Counter(str(entry.get("surface") or "unknown") for entry in entries)
-    return {"total": sum(by_surface.values()), "by_surface": dict(sorted(by_surface.items()))}
+# ``/api/status`` also checks the config version, probes the gateway and lists the profiles and
+# components, so it is asked about every STATUS_TTL seconds, not at the chip's 3 s cadence.
+STATUS_TTL = 15.0
+_STATUS_TIMEOUT = 2.0
+_no_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # loopback never goes through a proxy
+_status_cache: tuple[float, str, int | None] = (0.0, "", None)  # (asked at, url, answer)
+
+
+def status_url(scope: dict[str, Any]) -> str | None:
+    """``/api/status`` of the server a request reached, from the socket it arrived on.
+
+    Not the ``Host`` header: a client behind an SSH tunnel names the tunnel's local port.
+    """
+    server = scope.get("server")
+    if not server or not server[1]:  # a unix socket has no port
+        return None
+    host = server[0]
+    host = "127.0.0.1" if host in ("0.0.0.0", "") else "[::1]" if ":" in host else host
+    scheme = "https" if scope.get("scheme") in ("https", "wss") else "http"
+    return f"{scheme}://{host}:{server[1]}/api/status"
+
+
+def active_sessions(url: str, clock: Any = time.monotonic) -> int | None:
+    """Hermes's ``active_sessions`` from ``url``, or None when it cannot be read (cached, failures too)."""
+    global _status_cache
+    asked, cached_url, cached = _status_cache
+    if cached_url == url and clock() - asked < STATUS_TTL:
+        return cached
+    total = None
+    try:
+        with _no_proxy.open(url, timeout=_STATUS_TIMEOUT) as response:
+            total = json.load(response).get("active_sessions")
+    except (OSError, ValueError, http.client.HTTPException, AttributeError) as exc:  # AttributeError: not a JSON object
+        logger.debug("hermes-vitals-light: /api/status unreadable: %s", exc)
+    if isinstance(total, bool) or not isinstance(total, int):
+        total = None
+    _status_cache = (clock(), url, total)
+    return total
 
 
 # Console scripts from Hermes' pyproject; None means "read the subcommand from argv".
@@ -153,7 +196,8 @@ def count_hermes_processes(procs: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 
 # The figures a client can switch off server-side: the load figures cost one psutil call, the
-# counts a registry read and a full process scan (~50 ms of CPU per poll on 500 processes).
+# counts a ``/api/status`` call (every STATUS_TTL) and a full process scan (~50 ms of CPU per poll
+# on 500 processes).
 SKIPPABLE = ("clients", "processes")
 
 
@@ -162,18 +206,18 @@ def parse_skip(value: str | None) -> frozenset[str]:
     return frozenset(name.strip() for name in (value or "").split(",")) & frozenset(SKIPPABLE)
 
 
-def snapshot(clients: bool = True, processes: bool = True) -> dict[str, Any]:
-    """The ``/stats`` body: load figures, then the client and process counts asked for, when readable."""
+def snapshot(clients: bool = True, processes: bool = True, url: str | None = None) -> dict[str, Any]:
+    """The ``/stats`` body: load figures, then the session and process counts asked for, when readable.
+
+    ``url`` is the server's ``/api/status``; without one (the TUI feed has no server) there is no session count.
+    """
     body = collect_stats()
     if not body["ok"]:
         return body
-    if clients:
-        try:
-            from hermes_cli.active_sessions import active_session_registry_snapshot
-
-            body["clients"] = count_clients(active_session_registry_snapshot())
-        except (ImportError, RuntimeError, OSError) as exc:  # ActiveSessionRegistryError is a RuntimeError
-            logger.debug("hermes-vitals-light: session registry unreadable: %s", exc)
+    if clients and url:
+        total = active_sessions(url)
+        if total is not None:
+            body["clients"] = {"total": total}
     if processes:
         try:
             rows = (p.info for p in psutil.process_iter(["pid", "ppid", "cmdline"]))
@@ -216,9 +260,13 @@ if router is not None:
 
     # ``?skip=clients,processes``: the counts the chip hides are not measured at all.
     @router.get("/stats")
-    def stats(skip: str = "") -> dict[str, Any]:
+    def stats(request: Request, skip: str = "") -> dict[str, Any]:
         skipped = parse_skip(skip)
-        return snapshot(clients="clients" not in skipped, processes="processes" not in skipped)
+        return snapshot(
+            clients="clients" not in skipped,
+            processes="processes" not in skipped,
+            url=status_url(request.scope),
+        )
 
 
 if __name__ == "__main__":

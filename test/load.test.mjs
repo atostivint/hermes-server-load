@@ -20,28 +20,30 @@ test('the chip shows CPU, 1-minute load and RAM', () => {
   assert.equal(chipLabel({ cpu_percent: 23.4, load_avg: [1.2, 0.8, 0.5], memory: { percent: 61 } }), 'CPU 23% · Load 1.20 · RAM 61%')
 })
 
-test('the chip counts clients and the tooltip names each one', () => {
-  const stats = {
-    clients: { by_surface: { bighelp: 1, desktop: 2, mobile: 1 }, total: 4 },
-    cpu_percent: 5,
-    memory: { percent: 10 }
-  }
+test('the chip counts active sessions and the tooltip gives the total', () => {
+  const stats = { clients: { total: 4 }, cpu_percent: 5, memory: { percent: 10 } }
 
   assert.equal(chipLabel(stats), 'CPU 5% · RAM 10% · 👥 4')
-  assert.equal(tooltipLines(stats).at(-1), 'Clients: bighelp 1 · desktop 2 · mobile 1')
+  assert.equal(tooltipLines(stats).at(-1), 'Active sessions: 4')
 })
 
-test('no client in a conversation reads as zero, an older backend shows no count at all', () => {
-  const idle = { clients: { by_surface: {}, total: 0 }, cpu_percent: 5, memory: { percent: 10 } }
+test('no active session reads as zero, a server that gives no count shows none at all', () => {
+  const idle = { clients: { total: 0 }, cpu_percent: 5, memory: { percent: 10 } }
 
   assert.equal(chipLabel(idle), 'CPU 5% · RAM 10% · 👥 0')
-  assert.equal(tooltipLines(idle).at(-1), 'Clients: none in a conversation')
+  assert.equal(tooltipLines(idle).at(-1), 'Active sessions: 0')
   assert.equal(chipLabel({ cpu_percent: 5, memory: { percent: 10 } }), 'CPU 5% · RAM 10%')
+})
+
+test('a backend half older than the /api/status count still gets its per-client tooltip', () => {
+  const stats = { clients: { by_surface: { bighelp: 1, desktop: 2 }, total: 3 }, cpu_percent: 5, memory: { percent: 10 } }
+
+  assert.equal(tooltipLines(stats).at(-1), 'Clients: bighelp 1 · desktop 2')
 })
 
 test('the chip counts running Hermes executables and the tooltip names each command', () => {
   const stats = {
-    clients: { by_surface: {}, total: 0 },
+    clients: { total: 0 },
     cpu_percent: 5,
     memory: { percent: 10 },
     processes: { by_command: { chat: 3, serve: 1 }, total: 4 }
@@ -54,7 +56,7 @@ test('the chip counts running Hermes executables and the tooltip names each comm
 
 test('the chip shows only the switched-on figures, and only those colour it', () => {
   const stats = {
-    clients: { by_surface: {}, total: 2 },
+    clients: { total: 2 },
     cpu_count: 4,
     cpu_percent: 95,
     load_avg: [1, 1, 1],

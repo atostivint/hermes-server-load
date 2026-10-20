@@ -1,7 +1,8 @@
 /**
  * hermes-vitals-light for the Hermes TUI (`hermes --tui`) — the Desktop chip as an
  * ambient card docked above the status bar: "CPU 23% · Load 1.20 · RAM 61%
- * · 👥 2 · ⚙ 3", coloured by its worst figure.
+ * · ⚙ 3", coloured by its worst figure. No session count here: it comes from
+ * the server's /api/status, and the TUI measures its own machine.
  *
  * The TUI runs on the machine it measures, so there is no route to poll: the
  * card runs dashboard/plugin_api.py (inlined below) with the TUI's own Hermes
@@ -9,7 +10,7 @@
  * the card is docked.
  *
  *   /vitals                 dock / undock the card
- *   /vitals ram off         hide a figure (cpu, load, ram, clients, processes)
+ *   /vitals ram off         hide a figure (cpu, load, ram, processes)
  *   /vitals detail on       add the tooltip lines under the chip line
  *   /vitals all on | reset  every figure / back to the defaults
  *   /vitals help            usage and the current options
@@ -23,9 +24,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { CHIP_FIGURES, chipLabel, levelOf, shownPercents, skippedFigures, tooltipLines } from './load.js'
 import { applyOptions, describeOptions, OPTIONS, tuiOptions } from './options.js'
 
@@ -50,14 +51,6 @@ function saveOptions(options) {
   }
 }
 
-// The Hermes checkout the TUI runs from: the launcher's variable, else two levels above
-// ui-tui/dist/entry.js (the same fallback as the TUI's gateway client).
-function srcRoot() {
-  const candidates = [process.env.HERMES_PYTHON_SRC_ROOT, process.argv[1] && resolve(dirname(process.argv[1]), '../..')]
-
-  return candidates.find(dir => dir && existsSync(join(dir, 'hermes_cli')))
-}
-
 /**
  * Starts the stats child; `onStats(body)` per line, `onStats(null)` once it is gone. Returns the stop.
  * `skip`: the counts the child does not measure (`"clients,processes"`).
@@ -66,12 +59,6 @@ export function startFeed(onStats, spawnFn = spawn, skip = '') {
   // The interpreter the TUI's own gateway runs on (set by the hermes launcher).
   const python = process.env.HERMES_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
   const env = { ...process.env, PYTHONUNBUFFERED: '1', VITALS_SKIP: skip }
-  const src = srcRoot()
-
-  // The client count imports hermes_cli, which needs the source root on the path (as the gateway gets it).
-  if (src) {
-    env.PYTHONPATH = env.PYTHONPATH ? `${src}${delimiter}${env.PYTHONPATH}` : src
-  }
 
   const child = spawnFn(python, ['-c', STATS_PY], { env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
   let buffer = ''
@@ -114,7 +101,7 @@ export function cardWidth(options) {
   const figures = CHIP_FIGURES.filter(({ id }) => options[id]).map(({ id }) => FIGURE_WIDTH[id])
   const line = figures.reduce((sum, width) => sum + width, 0) + 3 * Math.max(figures.length - 1, 0)
 
-  // + border and padding; the detail lines need room for "Clients: desktop 1 · mobile 1".
+  // + border and padding; the detail lines need room for "Hermes running: chat 3 · serve 1".
   return Math.max(line + 4, options.detail ? 46 : 24)
 }
 
@@ -167,7 +154,7 @@ export default function register(sdk) {
 
   defineWidgetApp({
     id: 'hermes-vitals-light',
-    help: 'CPU, load, RAM, clients and Hermes processes of this machine (args: options)',
+    help: 'CPU, load, RAM and Hermes processes of this machine (args: options)',
     mode: 'ambient',
     // A getter: the TUI prints `usage` when init refuses, which makes `/vitals help`
     // (or a typo) show the options as they are now.
