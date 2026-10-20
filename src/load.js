@@ -34,11 +34,17 @@ export function loadPercent(stats) {
 }
 
 // What the chip can show, in chip order; each one is a switch in the settings page.
+// `tui: false`: the TUI card has no server to ask, so it does not offer the figure.
 export const CHIP_FIGURES = [
   { description: 'CPU use since the previous poll.', id: 'cpu', label: 'CPU' },
   { description: '1-minute load average (servers that report one).', id: 'load', label: 'Load average' },
   { description: 'Memory in use.', id: 'ram', label: 'RAM' },
-  { description: '👥 sessions clients hold on the connected profile.', id: 'clients', label: 'Clients' },
+  {
+    description: '👥 sessions active in the last 5 minutes on the connected server (Hermes status).',
+    id: 'clients',
+    label: 'Active sessions',
+    tui: false
+  },
   { description: '⚙ Hermes executables running on the server.', id: 'processes', label: 'Hermes processes' }
 ]
 
@@ -143,10 +149,11 @@ export function tooltipLines(stats) {
   const bySurface = Object.entries(stats.clients?.by_surface ?? {})
 
   if (Number.isInteger(stats.clients?.total)) {
+    // `by_surface` only comes from a backend half older than the /api/status count.
     lines.push(
       bySurface.length
         ? `Clients: ${bySurface.map(([surface, count]) => `${surface} ${count}`).join(' · ')}`
-        : 'Clients: none in a conversation'
+        : `Active sessions: ${stats.clients.total}`
     )
   }
 
