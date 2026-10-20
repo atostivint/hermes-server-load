@@ -1,3 +1,5 @@
+<img src="assets/logo.svg" alt="Hermes Vitals Light" width="72" align="right">
+
 # Hermes Vitals Light
 
 Hermes **Desktop** and **TUI** plugin that shows the CPU, load average and RAM of the server the Desktop is
