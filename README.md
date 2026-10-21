@@ -37,7 +37,7 @@ measured at all: the chip polls `/stats?skip=clients,processes` and the server s
 In `hermes --tui` the same figures sit in a card docked above the prompt, coloured like the
 chip (the TUI's skin colours), without `👥`: that count comes from a server's `/api/status`
 and the TUI has none to ask. The TUI measures the machine it runs on: the card runs
-`plugin_api.py` with the TUI's own Hermes python, which prints the `/stats` body every 3 s
+`plugin_api.py` with the TUI's own Hermes python, which prints the `/stats` body every 3 s (`/vitals every <s>` changes it)
 for as long as the card is docked.
 
 | Command | Effect |
@@ -57,7 +57,7 @@ Three halves, one package (same layout as other unified Hermes plugins):
 
 | Half | Where it runs | What it does |
 |---|---|---|
-| `desktop/plugin.js` | Hermes Desktop (renderer) | Chip in `statusBar.right`; polls `/stats` every 3 s, skips while the window is hidden, re-polls at once on a connection/profile switch. |
+| `desktop/plugin.js` | Hermes Desktop (renderer) | Chip in `statusBar.right`; polls `/stats` every 3 s by default (Refresh every), skips while the window is hidden, re-polls at once on a connection/profile switch. |
 | `dashboard/plugin_api.py` | The Hermes backend you connect to | Read-only `GET /api/plugins/hermes-vitals-light/stats` via `psutil` (a Hermes core dependency) and a loopback `GET /api/status` on the server it runs in. Returns only load figures, the hostname, the session total and per-command process counts. |
 | `tui/hermes-vitals-light.mjs` | Hermes TUI (`<HERMES_HOME>/tui-widgets/`) | Ambient widget app `/vitals`; inlines `plugin_api.py` and runs it as a child (`python -c`) for the figures. |
 
@@ -127,8 +127,9 @@ HERMES_AGENT_SRC=<hermes-agent checkout> <hermes venv python> -m unittest discov
 - Not verified in the running app yet: the chip's look in the real status bar, and the mount
   through `hermes serve` with its real `/api/status` (tested against a plain FastAPI router
   and a local stand-in for `/api/status`).
-- English-only tooltip and settings; fixed thresholds and 3 s cadence (the settings page
-  only picks the chip's figures). Hosts older than Settings ▸ Plugins show every figure.
+- English-only tooltip and settings; fixed thresholds. The refresh period is a setting
+  (Settings ▸ Plugins ▸ Refresh every: 1, 3, 5, 10, 30 or 60 s, default 3 s; `/vitals every 10`
+  in the TUI). Hosts older than Settings ▸ Plugins show every figure.
 - CPU, load and RAM are always measured (one psutil call each, under 2 ms); switching them
   off only hides them.
 - TUI: a TUI attached to a remote gateway still shows its own machine. On Windows psutil's

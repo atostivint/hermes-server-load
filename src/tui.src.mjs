@@ -12,6 +12,7 @@
  *   /vitals                 dock / undock the card
  *   /vitals ram off         hide a figure (cpu, load, ram, processes)
  *   /vitals detail on       add the tooltip lines under the chip line
+ *   /vitals every 10        refresh every 10 s (1, 3, 5, 10, 30 or 60; default 3)
  *   /vitals all on | reset  every figure / back to the defaults
  *   /vitals help            usage and the current options
  *
@@ -27,7 +28,7 @@ import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CHIP_FIGURES, chipLabel, levelOf, shownPercents, skippedFigures, tooltipLines } from './load.js'
+import { CHIP_FIGURES, chipLabel, DEFAULT_INTERVAL, INTERVALS, levelOf, shownPercents, skippedFigures, tooltipLines } from './load.js'
 import { applyOptions, describeOptions, OPTIONS, tuiOptions } from './options.js'
 
 // dashboard/plugin_api.py, inlined by scripts/build.mjs.
@@ -55,10 +56,10 @@ function saveOptions(options) {
  * Starts the stats child; `onStats(body)` per line, `onStats(null)` once it is gone. Returns the stop.
  * `skip`: the counts the child does not measure (`"clients,processes"`).
  */
-export function startFeed(onStats, spawnFn = spawn, skip = '') {
+export function startFeed(onStats, spawnFn = spawn, skip = '', interval = DEFAULT_INTERVAL) {
   // The interpreter the TUI's own gateway runs on (set by the hermes launcher).
   const python = process.env.HERMES_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
-  const env = { ...process.env, PYTHONUNBUFFERED: '1', VITALS_SKIP: skip }
+  const env = { ...process.env, PYTHONUNBUFFERED: '1', VITALS_INTERVAL: String(interval), VITALS_SKIP: skip }
 
   const child = spawnFn(python, ['-c', STATS_PY], { env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
   let buffer = ''
@@ -106,7 +107,7 @@ export function cardWidth(options) {
 }
 
 // A function: the inlined modules (OPTIONS) are declared after this file's body.
-export const usage = () => `usage: /vitals [${OPTIONS.join('|')}|all [on|off]] [reset]`
+export const usage = () => `usage: /vitals [${OPTIONS.join('|')}|all [on|off]] [every ${INTERVALS.join('|')}] [reset]`
 
 export default function register(sdk) {
   const { Box, React, Text, defineWidgetApp, h } = sdk
@@ -115,11 +116,16 @@ export default function register(sdk) {
     const [feed, setFeed] = React.useState({ status: 'loading' })
     const skip = skippedFigures(options).join(',')
 
-    // A new child when a count is switched on or off, so a hidden one is never measured.
+    // A new child when a count is switched on or off (a hidden one is never measured) or the period changes.
     React.useEffect(
       () =>
-        startFeed(body => setFeed(body?.ok ? { stats: body, status: 'ok' } : { status: 'unavailable' }), spawn, skip),
-      [skip]
+        startFeed(
+          body => setFeed(body?.ok ? { stats: body, status: 'ok' } : { status: 'unavailable' }),
+          spawn,
+          skip,
+          options.interval
+        ),
+      [skip, options.interval]
     )
 
     const lines = []

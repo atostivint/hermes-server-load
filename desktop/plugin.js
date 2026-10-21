@@ -8,8 +8,8 @@
  * gateway it measures the remote box. Without that half on the server the chip
  * shows "CPU —" and the poll backs off.
  *
- * Settings ▸ Plugins ▸ Hermes Vitals Light switches each figure on or off in the chip
- * (persisted with ctx.storage); the tooltip has the full detail of what is
+ * Settings ▸ Plugins ▸ Hermes Vitals Light switches each figure on or off in the chip and
+ * sets the refresh period, 1 s to 1 min, 3 s by default (persisted with ctx.storage); the tooltip has the full detail of what is
  * measured. Clients and Hermes processes switched off are not measured at all:
  * the poll asks the backend to skip them.
  *
@@ -26,7 +26,9 @@ const LEVEL_COLOR = { critical: '#ef4444', normal: undefined, warning: '#f59e0b'
 const LOADING = { status: 'loading' }
 
 // `prefs`: the counts switched off are not measured on the server either (`?skip=`).
-function createLoadStore(ctx, prefs) {
+// `interval`: the refresh period in seconds, read at every reschedule so a change applies at once.
+function createLoadStore(ctx, prefs, interval) {
+  const pollMs = () => interval.get() * 1000
   const listeners = new Set()
   let state = LOADING
   let failures = 0
@@ -47,7 +49,7 @@ function createLoadStore(ctx, prefs) {
 
   async function poll() {
     if (document.hidden) {
-      schedule(POLL_MS)
+      schedule(pollMs())
 
       return
     }
@@ -77,7 +79,7 @@ function createLoadStore(ctx, prefs) {
       set({ status: 'unavailable' })
     }
 
-    schedule(nextPollDelay(failures))
+    schedule(nextPollDelay(failures, pollMs()))
   }
 
   const restart = () => {
@@ -98,6 +100,14 @@ function createLoadStore(ctx, prefs) {
 
   ctx.onDispose(host.state.connectionId.subscribe(onRouteChange))
   ctx.onDispose(host.state.profile.subscribe(onRouteChange))
+  // A new period re-arms the pending timer now, instead of after the old wait.
+  ctx.onDispose(
+    interval.subscribe(() => {
+      if (started) {
+        schedule(pollMs())
+      }
+    })
+  )
   ctx.onDispose(() => cancelTimer())
   started = true
   restart()
@@ -150,13 +160,44 @@ function LoadChip({ prefs, store }) {
   })
 }
 
-function ChipSettings({ prefs, update }) {
+const formatInterval = seconds => (seconds < 60 ? `${seconds} s` : `${seconds / 60} min`)
+
+function IntervalRow({ interval, setPeriod }) {
+  const seconds = useValue(interval)
+
+  return jsxs('label', {
+    className: 'flex items-center justify-between gap-4 py-2 text-sm',
+    children: [
+      jsxs('span', {
+        className: 'flex flex-col',
+        children: [
+          jsx('span', { children: 'Refresh every' }),
+          jsx('span', {
+            className: 'text-xs text-(--ui-text-tertiary)',
+            children: 'How often the chip asks the server for fresh figures (paused while the window is hidden).'
+          })
+        ]
+      }),
+      jsx('select', {
+        className: 'rounded border border-(--ui-border) bg-transparent px-2 py-1 text-sm',
+        onChange: event => setPeriod(Number(event.target.value)),
+        value: seconds,
+        children: INTERVALS.map(value => jsx('option', { value, children: formatInterval(value) }, value))
+      })
+    ]
+  })
+}
+
+function ChipSettings({ interval, prefs, setPeriod, update }) {
   const shown = useValue(prefs)
 
-  return jsx('div', {
-    children: CHIP_FIGURES.map(({ description, id, label }) =>
-      jsx(ToggleRow, { checked: shown[id], description, label, onChange: on => update({ [id]: on }) }, id)
-    )
+  return jsxs('div', {
+    children: [
+      jsx(IntervalRow, { interval, setPeriod }),
+      ...CHIP_FIGURES.map(({ description, id, label }) =>
+        jsx(ToggleRow, { checked: shown[id], description, label, onChange: on => update({ [id]: on }) }, id)
+      )
+    ]
   })
 }
 
@@ -167,11 +208,17 @@ export default {
   defaultEnabled: false,
   register(ctx) {
     const prefs = atom(shownFigures(ctx.storage?.get('chip', {})))
-    const store = createLoadStore(ctx, prefs)
+    const interval = atom(refreshInterval(ctx.storage?.get('interval', undefined)))
+    const store = createLoadStore(ctx, prefs, interval)
 
     const update = patch => {
       prefs.set({ ...prefs.get(), ...patch })
       ctx.storage?.set('chip', prefs.get())
+    }
+
+    const setPeriod = seconds => {
+      interval.set(refreshInterval(seconds))
+      ctx.storage?.set('interval', interval.get())
     }
 
     ctx.register({
@@ -186,7 +233,7 @@ export default {
       id: 'settings',
       title: 'Hermes Vitals Light',
       icon: 'pulse',
-      render: () => jsx(ChipSettings, { prefs, update })
+      render: () => jsx(ChipSettings, { interval, prefs, setPeriod, update })
     })
   }
 }
@@ -197,6 +244,15 @@ export default {
 
 const POLL_MS = 3000
 const MAX_BACKOFF_MS = 60_000
+
+// The refresh periods the settings offer, in seconds; the default is the 3 s cadence.
+const INTERVALS = [1, 3, 5, 10, 30, 60]
+const DEFAULT_INTERVAL = POLL_MS / 1000
+
+// A saved period if it is one we offer, else the default.
+function refreshInterval(saved) {
+  return INTERVALS.includes(saved) ? saved : DEFAULT_INTERVAL
+}
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
@@ -317,8 +373,8 @@ function levelOf(...percents) {
 
 // A server without the backend half answers 404 on every poll; back off instead of
 // hammering it, and recover at the normal cadence on the first success.
-function nextPollDelay(failures) {
-  return failures === 0 ? POLL_MS : Math.min(POLL_MS * 2 ** failures, MAX_BACKOFF_MS)
+function nextPollDelay(failures, baseMs = POLL_MS) {
+  return failures === 0 ? baseMs : Math.min(baseMs * 2 ** failures, Math.max(MAX_BACKOFF_MS, baseMs))
 }
 
 function tooltipLines(stats) {

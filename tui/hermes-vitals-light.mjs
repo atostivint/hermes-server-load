@@ -12,6 +12,7 @@
  *   /vitals                 dock / undock the card
  *   /vitals ram off         hide a figure (cpu, load, ram, processes)
  *   /vitals detail on       add the tooltip lines under the chip line
+ *   /vitals every 10        refresh every 10 s (1, 3, 5, 10, 30 or 60; default 3)
  *   /vitals all on | reset  every figure / back to the defaults
  *   /vitals help            usage and the current options
  *
@@ -53,10 +54,10 @@ function saveOptions(options) {
  * Starts the stats child; `onStats(body)` per line, `onStats(null)` once it is gone. Returns the stop.
  * `skip`: the counts the child does not measure (`"clients,processes"`).
  */
-export function startFeed(onStats, spawnFn = spawn, skip = '') {
+export function startFeed(onStats, spawnFn = spawn, skip = '', interval = DEFAULT_INTERVAL) {
   // The interpreter the TUI's own gateway runs on (set by the hermes launcher).
   const python = process.env.HERMES_PYTHON?.trim() || (process.platform === 'win32' ? 'python' : 'python3')
-  const env = { ...process.env, PYTHONUNBUFFERED: '1', VITALS_SKIP: skip }
+  const env = { ...process.env, PYTHONUNBUFFERED: '1', VITALS_INTERVAL: String(interval), VITALS_SKIP: skip }
 
   const child = spawnFn(python, ['-c', STATS_PY], { env, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
   let buffer = ''
@@ -104,7 +105,7 @@ export function cardWidth(options) {
 }
 
 // A function: the inlined modules (OPTIONS) are declared after this file's body.
-export const usage = () => `usage: /vitals [${OPTIONS.join('|')}|all [on|off]] [reset]`
+export const usage = () => `usage: /vitals [${OPTIONS.join('|')}|all [on|off]] [every ${INTERVALS.join('|')}] [reset]`
 
 export default function register(sdk) {
   const { Box, React, Text, defineWidgetApp, h } = sdk
@@ -113,11 +114,16 @@ export default function register(sdk) {
     const [feed, setFeed] = React.useState({ status: 'loading' })
     const skip = skippedFigures(options).join(',')
 
-    // A new child when a count is switched on or off, so a hidden one is never measured.
+    // A new child when a count is switched on or off (a hidden one is never measured) or the period changes.
     React.useEffect(
       () =>
-        startFeed(body => setFeed(body?.ok ? { stats: body, status: 'ok' } : { status: 'unavailable' }), spawn, skip),
-      [skip]
+        startFeed(
+          body => setFeed(body?.ok ? { stats: body, status: 'ok' } : { status: 'unavailable' }),
+          spawn,
+          skip,
+          options.interval
+        ),
+      [skip, options.interval]
     )
 
     const lines = []
@@ -189,6 +195,15 @@ export default function register(sdk) {
 
 const POLL_MS = 3000
 const MAX_BACKOFF_MS = 60_000
+
+// The refresh periods the settings offer, in seconds; the default is the 3 s cadence.
+const INTERVALS = [1, 3, 5, 10, 30, 60]
+const DEFAULT_INTERVAL = POLL_MS / 1000
+
+// A saved period if it is one we offer, else the default.
+function refreshInterval(saved) {
+  return INTERVALS.includes(saved) ? saved : DEFAULT_INTERVAL
+}
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
@@ -309,8 +324,8 @@ function levelOf(...percents) {
 
 // A server without the backend half answers 404 on every poll; back off instead of
 // hammering it, and recover at the normal cadence on the first success.
-function nextPollDelay(failures) {
-  return failures === 0 ? POLL_MS : Math.min(POLL_MS * 2 ** failures, MAX_BACKOFF_MS)
+function nextPollDelay(failures, baseMs = POLL_MS) {
+  return failures === 0 ? baseMs : Math.min(baseMs * 2 ** failures, Math.max(MAX_BACKOFF_MS, baseMs))
 }
 
 function tooltipLines(stats) {
@@ -367,11 +382,16 @@ const TUI_FIGURES = CHIP_FIGURES.filter(({ tui }) => tui !== false).map(({ id })
 // Those plus `detail` (the Desktop tooltip lines under the chip line, off by default).
 const OPTIONS = [...TUI_FIGURES, 'detail']
 
-const TUI_DEFAULTS = { ...Object.fromEntries(TUI_FIGURES.map(id => [id, true])), detail: false }
+// `interval`: the refresh period in seconds (`/vitals every 10`), not a switch.
+const TUI_DEFAULTS = {
+  ...Object.fromEntries(TUI_FIGURES.map(id => [id, true])),
+  detail: false,
+  interval: DEFAULT_INTERVAL
+}
 
 // Saved options over the defaults, so an option added later starts at its default.
 function tuiOptions(saved) {
-  const options = { ...TUI_DEFAULTS }
+  const options = { ...TUI_DEFAULTS, interval: refreshInterval(saved?.interval) }
 
   for (const id of OPTIONS) {
     if (typeof saved?.[id] === 'boolean') {
@@ -401,6 +421,19 @@ function applyOptions(arg, current) {
       continue
     }
 
+    if (word === 'every') {
+      // `every 10` or `every 10s`; only the offered periods.
+      const seconds = Number.parseInt(words[i + 1], 10)
+
+      if (!INTERVALS.includes(seconds)) {
+        return null
+      }
+
+      next.interval = seconds
+      i++
+      continue
+    }
+
     const ids = word === 'all' ? TUI_FIGURES : OPTIONS.includes(word) ? [word] : null
 
     if (!ids) {
@@ -425,5 +458,5 @@ function applyOptions(arg, current) {
 }
 
 function describeOptions(options) {
-  return OPTIONS.map(id => `${id} ${options[id] ? 'on' : 'off'}`).join(' · ')
+  return [...OPTIONS.map(id => `${id} ${options[id] ? 'on' : 'off'}`), `every ${options.interval}s`].join(' · ')
 }
