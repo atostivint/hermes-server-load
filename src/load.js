@@ -4,6 +4,15 @@
 export const POLL_MS = 3000
 export const MAX_BACKOFF_MS = 60_000
 
+// The refresh periods the settings offer, in seconds; the default is the 3 s cadence.
+export const INTERVALS = [1, 3, 5, 10, 30, 60]
+export const DEFAULT_INTERVAL = POLL_MS / 1000
+
+// A saved period if it is one we offer, else the default.
+export function refreshInterval(saved) {
+  return INTERVALS.includes(saved) ? saved : DEFAULT_INTERVAL
+}
+
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
 export function formatBytes(bytes) {
@@ -123,8 +132,8 @@ export function levelOf(...percents) {
 
 // A server without the backend half answers 404 on every poll; back off instead of
 // hammering it, and recover at the normal cadence on the first success.
-export function nextPollDelay(failures) {
-  return failures === 0 ? POLL_MS : Math.min(POLL_MS * 2 ** failures, MAX_BACKOFF_MS)
+export function nextPollDelay(failures, baseMs = POLL_MS) {
+  return failures === 0 ? baseMs : Math.min(baseMs * 2 ** failures, Math.max(MAX_BACKOFF_MS, baseMs))
 }
 
 export function tooltipLines(stats) {

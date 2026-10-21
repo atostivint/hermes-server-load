@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url'
 
 import { applyOptions, describeOptions, TUI_DEFAULTS, tuiOptions } from '../src/options.js'
 
-const ALL_OFF = { cpu: false, detail: false, load: false, processes: false, ram: false }
+const ALL_OFF = { cpu: false, detail: false, interval: 3, load: false, processes: false, ram: false }
 
 test('on/off set an option, a bare option flips it, several go in one command', () => {
   assert.equal(applyOptions('ram off', TUI_DEFAULTS).ram, false)
@@ -37,10 +37,21 @@ test('an unknown word refuses the whole command', () => {
   assert.equal(applyOptions('cpu off disk off', TUI_DEFAULTS), null)
 })
 
+test('every sets the refresh period, only to an offered one', () => {
+  assert.equal(applyOptions('every 10', TUI_DEFAULTS).interval, 10)
+  assert.equal(applyOptions('every 10s ram off', TUI_DEFAULTS).ram, false)
+  assert.equal(applyOptions('every 10 ram off', TUI_DEFAULTS).interval, 10)
+  assert.equal(applyOptions('every 7', TUI_DEFAULTS), null)
+  assert.equal(applyOptions('every', TUI_DEFAULTS), null)
+  assert.equal(applyOptions('reset', { ...TUI_DEFAULTS, interval: 60 }).interval, 3)
+  assert.equal(tuiOptions({ interval: 30 }).interval, 30)
+  assert.equal(tuiOptions({ interval: 7 }).interval, 3, 'a period we do not offer falls back')
+})
+
 test('saved options sit over the defaults; junk is ignored', () => {
   assert.deepEqual(tuiOptions(undefined), TUI_DEFAULTS)
   assert.deepEqual(tuiOptions({ cpu: false, detail: 'yes', extra: true }), { ...TUI_DEFAULTS, cpu: false })
-  assert.equal(describeOptions(TUI_DEFAULTS), 'cpu on · load on · ram on · processes on · detail off')
+  assert.equal(describeOptions(TUI_DEFAULTS), 'cpu on · load on · ram on · processes on · detail off · every 3s')
 })
 
 test('the card has no session count: it has no server to ask, and a saved one is ignored', () => {
@@ -71,6 +82,7 @@ test('the widget docks as an ambient app; options persist in HERMES_HOME', () =>
     detail: true,
     ram: false
   })
+  assert.equal(app.init('every 30').options.interval, 30)
   // A bare relaunch keeps them.
   assert.equal(app.init('').options.ram, false)
 
@@ -81,7 +93,7 @@ test('a refused command prints the usage with the current options', () => {
   app.init('cpu off')
 
   assert.equal(app.init('help'), null)
-  assert.match(app.usage, /^usage: \/vitals \[cpu\|load\|ram\|processes\|detail\|all \[on\|off\]\] \[reset\]/)
+  assert.match(app.usage, /^usage: \/vitals \[cpu\|load\|ram\|processes\|detail\|all \[on\|off\]\] \[every [\d|]+\] \[reset\]/)
   assert.match(app.usage, /now: cpu off · load on/)
 
   app.init('reset')
@@ -138,6 +150,16 @@ test('the feed runs plugin_api.py under the TUI python and parses split JSON lin
   assert.equal(child.killed, true)
   child.emit('exit') // our own kill is not "gone"
   assert.equal(seen.length, 2)
+})
+
+test('the refresh period is passed to the child, 3 s by default', () => {
+  const first = fakeSpawn()
+  widget.startFeed(() => {}, first.spawn)()
+  assert.equal(first.calls[0][2].env.VITALS_INTERVAL, '3')
+
+  const second = fakeSpawn()
+  widget.startFeed(() => {}, second.spawn, '', 10)()
+  assert.equal(second.calls[0][2].env.VITALS_INTERVAL, '10')
 })
 
 test('the counts the card hides are passed to the child, which skips them', () => {

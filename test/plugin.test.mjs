@@ -90,14 +90,33 @@ function load(rest, saved = {}) {
     return element.type(element.props)
   }
 
-  // Settings page: <ChipSettings> -> one <ToggleRow> per figure.
-  const toggles = () => {
+  // Settings page: <ChipSettings> -> the interval row, then one <ToggleRow> per figure.
+  const rows = () => {
     const element = pages[0].render()
 
     return element.type(element.props).props.children
   }
 
-  return { chip, dispose: () => disposers.forEach(fn => fn()), fire, pages, registered, saved, timers, toggles }
+  const toggles = () => rows().filter(row => row.props.label)
+
+  // <IntervalRow> -> label -> [text, <select>].
+  const intervalSelect = () => {
+    const row = rows()[0]
+
+    return row.type(row.props).props.children[1]
+  }
+
+  return {
+    chip,
+    dispose: () => disposers.forEach(fn => fn()),
+    fire,
+    intervalSelect,
+    pages,
+    registered,
+    saved,
+    timers,
+    toggles
+  }
 }
 
 function text(node) {
@@ -200,6 +219,24 @@ test('saved settings come back on load, and every figure off leaves the icon', a
   assert.equal(text(chip.props.children), '')
   assert.equal(chip.props.children.props.children[0].type, 'Codicon')
   assert.match(text(chip.props.label), /gw-1/, 'the tooltip keeps the detail')
+  plugin.dispose()
+})
+
+test('the refresh period is a setting: saved, applied at once, and the next poll waits that long', async () => {
+  const plugin = load(async () => STATS, { interval: 10 })
+
+  assert.equal(plugin.intervalSelect().props.value, 10, 'the saved period comes back')
+
+  await plugin.fire()
+  assert.equal(plugin.timers.filter(t => t.live).at(-1).ms, 10_000)
+
+  plugin.intervalSelect().props.onChange({ target: { value: '30' } })
+  assert.equal(plugin.saved.interval, 30)
+  assert.equal(plugin.timers.filter(t => t.live).at(-1).ms, 30_000, 'the pending wait is replaced')
+
+  // A value we do not offer is ignored.
+  plugin.intervalSelect().props.onChange({ target: { value: '7' } })
+  assert.equal(plugin.saved.interval, 3)
   plugin.dispose()
 })
 
